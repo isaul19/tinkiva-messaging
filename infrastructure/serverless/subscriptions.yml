@@ -1,0 +1,16 @@
+Conditions:
+  HasAlarmEmail:
+    Fn::Not:
+      - Fn::Equals:
+          - ${param:alarmEmail, ''}
+          - ""
+
+Resources:
+  MessagingAlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlarmEmail
+    Properties:
+      Endpoint: ${param:alarmEmail, ''}
+      Protocol: email
+      TopicArn:
+        Ref: MessagingAlarmTopic

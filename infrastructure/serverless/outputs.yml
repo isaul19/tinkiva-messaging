@@ -1,0 +1,51 @@
+Outputs:
+  ControlTableName:
+    Description: DynamoDB control-plane table.
+    Value:
+      Ref: MessagingControlTable
+  DataTableName:
+    Description: DynamoDB message-data table.
+    Value:
+      Ref: MessagingDataTable
+  MediaBucketName:
+    Description: Private S3 media and raw-event bucket.
+    Value:
+      Ref: MessagingMediaBucket
+  InboundQueueUrl:
+    Description: FIFO queue for normalized inbound provider events.
+    Value:
+      Ref: InboundQueue
+  InboundQueueArn:
+    Description: ARN of the inbound FIFO queue.
+    Value:
+      Fn::GetAtt:
+        - InboundQueue
+        - Arn
+  WhatsappOutboundQueueUrl:
+    Description: FIFO queue for WhatsApp outbound commands.
+    Value:
+      Ref: WhatsappOutboundQueue
+  TelegramOutboundQueueUrl:
+    Description: FIFO queue for Telegram outbound commands.
+    Value:
+      Ref: TelegramOutboundQueue
+  AppEventsQueueUrl:
+    Description: FIFO queue for application delivery events.
+    Value:
+      Ref: AppEventsQueue
+  MediaQueueUrl:
+    Description: Standard queue for asynchronous media processing.
+    Value:
+      Ref: MediaQueue
+  AuthPepperSecretArn:
+    Description: ARN of the generated application authentication pepper.
+    Value:
+      Ref: AuthPepperSecret
+  JwtSigningSecretArn:
+    Description: ARN of the generated JWT signing secret.
+    Value:
+      Ref: JwtSigningSecret
+  AlarmTopicArn:
+    Description: SNS topic receiving messaging infrastructure alarms.
+    Value:
+      Ref: MessagingAlarmTopic

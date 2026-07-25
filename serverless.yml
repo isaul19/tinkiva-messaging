@@ -1,0 +1,231 @@
+service: tinkiva-messaging-gateway
+frameworkVersion: "4"
+
+provider:
+  name: aws
+  runtime: nodejs22.x
+  architecture: arm64
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
+  memorySize: 512
+  timeout: 15
+  logRetentionInDays: 14
+  versionFunctions: false
+  deploymentMethod: direct
+  httpApi:
+    cors: false
+    authorizers:
+      applicationAuthorizer:
+        type: request
+        functionName: apiAuthorizer
+        identitySource:
+          - $request.header.Authorization
+        payloadVersion: "2.0"
+        enableSimpleResponses: true
+        resultTtlInSeconds: 0
+  environment:
+    LOG_LEVEL: ${env:LOG_LEVEL, 'INFO'}
+    STAGE: ${sls:stage}
+  stackTags:
+    Project: tinkiva-messaging
+    Service: messaging-gateway
+    Stage: ${sls:stage}
+    ManagedBy: serverless-framework
+  tags:
+    Project: tinkiva-messaging
+    Service: messaging-gateway
+    Stage: ${sls:stage}
+    ManagedBy: serverless-framework
+
+build:
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap:
+      type: linked
+      setNodeOptions: true
+    target: node22
+
+package:
+  individually: true
+  patterns:
+    - "!coverage/**"
+    - "!dist/**"
+    - "!docs/**"
+    - "!infrastructure/**"
+    - "!scripts/**"
+    - "!tests/**"
+
+functions:
+  health:
+    handler: src/functions/health/handler.main
+    description: Liveness endpoint without internal infrastructure details.
+    timeout: 5
+    role:
+      Fn::GetAtt:
+        - HealthLambdaRole
+        - Arn
+    events:
+      - httpApi:
+          path: /health
+          method: GET
+
+  authToken:
+    handler: src/functions/auth-token/handler.main
+    description: Issues short-lived application access tokens.
+    timeout: 10
+    role:
+      Fn::GetAtt:
+        - AuthTokenLambdaRole
+        - Arn
+    environment:
+      CONTROL_TABLE:
+        Ref: MessagingControlTable
+      AUTH_PEPPER_SECRET_ARN:
+        Ref: AuthPepperSecret
+      JWT_SIGNING_SECRET_ARN:
+        Ref: JwtSigningSecret
+      TOKEN_AUDIENCE: tinkiva-messaging-gateway
+      TOKEN_ISSUER: https://messaging-api.tinkiva.com
+      TOKEN_TTL_SECONDS: "900"
+    events:
+      - httpApi:
+          path: /v1/auth/token
+          method: POST
+
+  apiAuthorizer:
+    handler: src/functions/api-authorizer/handler.main
+    description: Validates application JWTs and current client authorization.
+    timeout: 10
+    role:
+      Fn::GetAtt:
+        - ApiAuthorizerLambdaRole
+        - Arn
+    environment:
+      CONTROL_TABLE:
+        Ref: MessagingControlTable
+      AUTH_PEPPER_SECRET_ARN:
+        Ref: AuthPepperSecret
+      JWT_SIGNING_SECRET_ARN:
+        Ref: JwtSigningSecret
+      TOKEN_AUDIENCE: tinkiva-messaging-gateway
+      TOKEN_ISSUER: https://messaging-api.tinkiva.com
+      TOKEN_TTL_SECONDS: "900"
+
+  privateApi:
+    handler: src/functions/private-api/handler.main
+    description: Application-scoped tenant, integration, and messaging API.
+    timeout: 15
+    role:
+      Fn::GetAtt:
+        - PrivateApiLambdaRole
+        - Arn
+    environment:
+      CONTROL_TABLE:
+        Ref: MessagingControlTable
+      DATA_TABLE:
+        Ref: MessagingDataTable
+      TELEGRAM_OUTBOUND_QUEUE_URL:
+        Ref: TelegramOutboundQueue
+      TELEGRAM_WEBHOOK_BASE_URL: ${param:publicBaseUrl, 'https://messaging-api.tinkiva.com'}
+    events:
+      - httpApi:
+          path: /v1/tenants
+          method: POST
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/tenants/by-external-account/{externalAccountId}
+          method: GET
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/tenants/{tenantId}
+          method: GET
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/tenants/{tenantId}/integrations/telegram
+          method: POST
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/messages
+          method: POST
+          authorizer:
+            name: applicationAuthorizer
+
+  telegramWebhook:
+    handler: src/functions/telegram-webhook/handler.main
+    description: Verifies Telegram webhook credentials and enqueues provider updates.
+    timeout: 8
+    role:
+      Fn::GetAtt:
+        - TelegramWebhookLambdaRole
+        - Arn
+    environment:
+      CONTROL_TABLE:
+        Ref: MessagingControlTable
+      INBOUND_QUEUE_URL:
+        Ref: InboundQueue
+    events:
+      - httpApi:
+          path: /webhooks/telegram/{webhookKey}
+          method: POST
+
+  inboundProcessor:
+    handler: src/functions/inbound-processor/handler.main
+    description: Normalizes and persists inbound provider messages with idempotency.
+    timeout: 30
+    role:
+      Fn::GetAtt:
+        - InboundProcessorLambdaRole
+        - Arn
+    environment:
+      CONTROL_TABLE:
+        Ref: MessagingControlTable
+      DATA_TABLE:
+        Ref: MessagingDataTable
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - InboundQueue
+              - Arn
+          batchSize: 10
+          functionResponseType: ReportBatchItemFailures
+
+  telegramSender:
+    handler: src/functions/telegram-sender/handler.main
+    description: Sends queued Telegram text messages and persists provider status.
+    timeout: 30
+    role:
+      Fn::GetAtt:
+        - TelegramSenderLambdaRole
+        - Arn
+    environment:
+      CONTROL_TABLE:
+        Ref: MessagingControlTable
+      DATA_TABLE:
+        Ref: MessagingDataTable
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - TelegramOutboundQueue
+              - Arn
+          batchSize: 10
+          functionResponseType: ReportBatchItemFailures
+
+resources:
+  - ${file(./infrastructure/serverless/conditions.yml)}
+  - ${file(./infrastructure/serverless/iam.yml)}
+  - ${file(./infrastructure/serverless/phase2-iam.yml)}
+  - ${file(./infrastructure/serverless/phase3-iam.yml)}
+  - ${file(./infrastructure/serverless/dynamodb.yml)}
+  - ${file(./infrastructure/serverless/queues.yml)}
+  - ${file(./infrastructure/serverless/storage.yml)}
+  - ${file(./infrastructure/serverless/secrets.yml)}
+  - ${file(./infrastructure/serverless/monitoring.yml)}
+  - ${file(./infrastructure/serverless/subscriptions.yml)}
+  - ${file(./infrastructure/serverless/outputs.yml)}

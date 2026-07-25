@@ -1,0 +1,122 @@
+Resources:
+  MessagingAlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: tinkiva-messaging-alarms-${sls:stage}
+      DisplayName: Tinkiva messaging alarms
+      KmsMasterKeyId: alias/aws/sns
+
+  InboundDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: tinkiva-messaging-inbound-dlq-${sls:stage}
+      AlarmDescription: At least one inbound event is waiting in the DLQ.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: QueueName
+          Value:
+            Fn::GetAtt:
+              - InboundDlq
+              - QueueName
+      AlarmActions:
+        - Ref: MessagingAlarmTopic
+
+  WhatsappOutboundDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: tinkiva-messaging-whatsapp-dlq-${sls:stage}
+      AlarmDescription: At least one WhatsApp command is waiting in the DLQ.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: QueueName
+          Value:
+            Fn::GetAtt:
+              - WhatsappOutboundDlq
+              - QueueName
+      AlarmActions:
+        - Ref: MessagingAlarmTopic
+
+  TelegramOutboundDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: tinkiva-messaging-telegram-dlq-${sls:stage}
+      AlarmDescription: At least one Telegram command is waiting in the DLQ.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: QueueName
+          Value:
+            Fn::GetAtt:
+              - TelegramOutboundDlq
+              - QueueName
+      AlarmActions:
+        - Ref: MessagingAlarmTopic
+
+  AppEventsDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: tinkiva-messaging-app-events-dlq-${sls:stage}
+      AlarmDescription: At least one application event is waiting in the DLQ.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: QueueName
+          Value:
+            Fn::GetAtt:
+              - AppEventsDlq
+              - QueueName
+      AlarmActions:
+        - Ref: MessagingAlarmTopic
+
+  MediaDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: tinkiva-messaging-media-dlq-${sls:stage}
+      AlarmDescription: At least one media job is waiting in the DLQ.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: QueueName
+          Value:
+            Fn::GetAtt:
+              - MediaDlq
+              - QueueName
+      AlarmActions:
+        - Ref: MessagingAlarmTopic

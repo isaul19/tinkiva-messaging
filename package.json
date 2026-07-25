@@ -1,0 +1,51 @@
+{
+  "name": "tinkiva-messaging-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Reusable multi-tenant messaging gateway for Tinkiva applications.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@11.5.1",
+  "engines": {
+    "node": ">=22 <23",
+    "pnpm": ">=11 <12"
+  },
+  "scripts": {
+    "admin:create-application": "tsx src/cli/create-application.ts",
+    "build": "tsc --project tsconfig.build.json",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "infra:validate": "node scripts/validate-packaged-infrastructure.mjs && node scripts/validate-cloudformation-shape.mjs && node scripts/validate-phase2-infrastructure.mjs && node scripts/validate-phase3-infrastructure.mjs",
+    "lint": "eslint .",
+    "package": "serverless package --stage dev && pnpm infra:validate",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm build"
+  },
+  "dependencies": {
+    "@aws-lambda-powertools/logger": "2.34.0",
+    "@aws-sdk/client-dynamodb": "3.1095.0",
+    "@aws-sdk/client-secrets-manager": "3.1095.0",
+    "@aws-sdk/client-sqs": "3.1095.0",
+    "@aws-sdk/lib-dynamodb": "3.1095.0",
+    "jose": "6.2.4",
+    "ulid": "3.0.2",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/aws-lambda": "8.10.162",
+    "@types/node": "26.1.1",
+    "@vitest/coverage-v8": "4.1.10",
+    "esbuild": "0.28.1",
+    "eslint": "10.7.0",
+    "prettier": "3.9.6",
+    "serverless": "4.40.0",
+    "tsx": "4.23.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.65.0",
+    "vitest": "4.1.10"
+  }
+}

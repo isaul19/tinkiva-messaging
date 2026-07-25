@@ -1,6 +1,3 @@
-(Nota: Temporalmente este proyecto estara dentro del archivo Storagia/TinkivaMessaging, pero luego
-de finalizar la version 1 se moverá a otro fichero)
-
 # Tinkiva Messaging Gateway
 
 > Especificación de arquitectura e implementación para un servicio multicanal reutilizable por

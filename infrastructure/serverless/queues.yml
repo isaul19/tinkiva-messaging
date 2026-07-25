@@ -1,0 +1,134 @@
+Resources:
+  InboundDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: messaging-inbound-events-dlq-${sls:stage}.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  InboundQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: messaging-inbound-events-${sls:stage}.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      DeduplicationScope: messageGroup
+      FifoThroughputLimit: perMessageGroupId
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::GetAtt:
+            - InboundDlq
+            - Arn
+        maxReceiveCount: 5
+
+  WhatsappOutboundDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: messaging-outbound-whatsapp-dlq-${sls:stage}.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  WhatsappOutboundQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: messaging-outbound-whatsapp-${sls:stage}.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      DeduplicationScope: messageGroup
+      FifoThroughputLimit: perMessageGroupId
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::GetAtt:
+            - WhatsappOutboundDlq
+            - Arn
+        maxReceiveCount: 5
+
+  TelegramOutboundDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: messaging-outbound-telegram-dlq-${sls:stage}.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  TelegramOutboundQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: messaging-outbound-telegram-${sls:stage}.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      DeduplicationScope: messageGroup
+      FifoThroughputLimit: perMessageGroupId
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::GetAtt:
+            - TelegramOutboundDlq
+            - Arn
+        maxReceiveCount: 5
+
+  AppEventsDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: messaging-app-events-dlq-${sls:stage}.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  AppEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: messaging-app-events-${sls:stage}.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      DeduplicationScope: messageGroup
+      FifoThroughputLimit: perMessageGroupId
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::GetAtt:
+            - AppEventsDlq
+            - Arn
+        maxReceiveCount: 5
+
+  MediaDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: messaging-media-dlq-${sls:stage}
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  MediaQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: messaging-media-${sls:stage}
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 360
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::GetAtt:
+            - MediaDlq
+            - Arn
+        maxReceiveCount: 5
