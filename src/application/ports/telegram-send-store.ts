@@ -9,7 +9,7 @@ export interface ClaimedTelegramSend {
   chatId: string;
   conversationId: string;
   messageSortKey: string;
-  secretArn: string;
+  credentialRef: string;
   status: "CLAIMED";
   text: string;
 }

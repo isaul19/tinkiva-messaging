@@ -8,7 +8,7 @@ import type {
   CreateTelegramIntegrationRecords,
   TelegramIntegrationStore,
 } from "../../../src/application/ports/telegram-integration-store.js";
-import type { TelegramSecretWriter } from "../../../src/application/ports/telegram-secret-writer.js";
+import type { TelegramCredentialWriter } from "../../../src/application/ports/telegram-credential-vault.js";
 import { RegisterTelegramIntegration } from "../../../src/application/telegram/register-telegram-integration.js";
 
 const botToken = "123456789:telegram-bot-token-for-unit-tests";
@@ -40,10 +40,8 @@ class FakeBotApi implements TelegramBotApi {
   }
 }
 
-class FakeSecretWriter implements TelegramSecretWriter {
-  public readonly create = vi.fn(() =>
-    Promise.resolve("arn:aws:secretsmanager:us-east-1:123:secret:telegram"),
-  );
+class FakeCredentialWriter implements TelegramCredentialWriter {
+  public readonly create = vi.fn(() => Promise.resolve("pc_test"));
   public readonly deleteImmediately = vi.fn(() => Promise.resolve());
 }
 
@@ -71,20 +69,19 @@ class FakeIntegrationStore implements TelegramIntegrationStore {
 
 const createUseCase = (
   botApi = new FakeBotApi(),
-  secrets = new FakeSecretWriter(),
+  secrets = new FakeCredentialWriter(),
   store = new FakeIntegrationStore(),
 ) => ({
   botApi,
   secrets,
   store,
   useCase: new RegisterTelegramIntegration(botApi, secrets, store, {
-    stage: "test",
     webhookBaseUrl: "https://gateway.example/",
   }),
 });
 
 describe("RegisterTelegramIntegration", () => {
-  it("stores the bot token only in Secrets Manager and activates the webhook", async () => {
+  it("stores only an encrypted credential reference and activates the webhook", async () => {
     const { botApi, secrets, store, useCase } = createUseCase();
 
     const result = await useCase.execute({
@@ -116,7 +113,7 @@ describe("RegisterTelegramIntegration", () => {
       applicationId: "app_test",
       botId: "123456789",
     });
-    expect(store.created?.secretArn).toContain("secretsmanager");
+    expect(store.created?.credentialRef).toBe("pc_test");
     expect(store.statuses).toEqual(["ACTIVE"]);
     const setWebhookCall = botApi.setWebhookCalls[0];
     expect(setWebhookCall?.dropPendingUpdates).toBe(true);
@@ -126,7 +123,7 @@ describe("RegisterTelegramIntegration", () => {
     expect(setWebhookCall?.secretToken).toHaveLength(43);
   });
 
-  it("deletes a newly created orphan secret when persistence fails", async () => {
+  it("deletes a newly created orphan credential when persistence fails", async () => {
     const dependencies = createUseCase();
     dependencies.store.createError = new Error("DynamoDB rejected the transaction");
 
@@ -141,9 +138,7 @@ describe("RegisterTelegramIntegration", () => {
       }),
     ).rejects.toThrow("DynamoDB rejected");
 
-    expect(dependencies.secrets.deleteImmediately).toHaveBeenCalledWith(
-      expect.stringContaining("secretsmanager"),
-    );
+    expect(dependencies.secrets.deleteImmediately).toHaveBeenCalledWith("pc_test");
     expect(dependencies.botApi.setWebhookCalls).toHaveLength(0);
   });
 

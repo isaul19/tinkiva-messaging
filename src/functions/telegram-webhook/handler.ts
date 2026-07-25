@@ -5,9 +5,9 @@ import { z } from "zod";
 
 import { ReceiveTelegramUpdate } from "../../application/telegram/receive-telegram-update.js";
 import { telegramUpdateSchema } from "../../contracts/providers/telegram.contract.js";
-import { dynamoDocumentClient, secretsManagerClient } from "../../infrastructure/aws/clients.js";
+import { dynamoDocumentClient, kmsClient } from "../../infrastructure/aws/clients.js";
 import { DynamoTelegramIntegrationReader } from "../../infrastructure/dynamodb/dynamo-telegram-integration-reader.js";
-import { CachedSecretReader } from "../../infrastructure/secrets/cached-secret-reader.js";
+import { KmsDynamoTelegramCredentialVault } from "../../infrastructure/dynamodb/kms-dynamo-telegram-credential-vault.js";
 import { SqsTelegramInboundPublisher } from "../../infrastructure/sqs/sqs-telegram-inbound-publisher.js";
 import { loadTelegramWebhookRuntimeConfig } from "../../shared/config/telegram-webhook-runtime-config.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
@@ -57,9 +57,13 @@ const integrationReader = new DynamoTelegramIntegrationReader(
   dynamoDocumentClient,
   config.CONTROL_TABLE,
 );
-const secretReader = new CachedSecretReader(secretsManagerClient);
+const credentialVault = new KmsDynamoTelegramCredentialVault(dynamoDocumentClient, kmsClient, {
+  keyArn: config.PROVIDER_CREDENTIALS_KEY_ARN,
+  stage: config.STAGE,
+  tableName: config.CONTROL_TABLE,
+});
 const publisher = new SqsTelegramInboundPublisher(new SQSClient({}), config.INBOUND_QUEUE_URL);
 
 export const main = createTelegramWebhookHandler({
-  receiveTelegramUpdate: new ReceiveTelegramUpdate(integrationReader, secretReader, publisher),
+  receiveTelegramUpdate: new ReceiveTelegramUpdate(integrationReader, credentialVault, publisher),
 });

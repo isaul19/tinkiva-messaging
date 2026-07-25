@@ -1,5 +1,38 @@
 # Deployment history
 
+## 2026-07-25 — Provider credential migration to DynamoDB and KMS
+
+- Operator: Codex using AWS user `saul`.
+- Stage: `dev`.
+- Region: `us-east-1`.
+- AWS account: `160358212333`.
+- CloudFormation stack: `tinkiva-messaging-gateway-dev`.
+- Final status: `UPDATE_COMPLETE`.
+- Created KMS alias: `alias/tinkiva-messaging-provider-credentials-dev`.
+- Created KMS key: `arn:aws:kms:us-east-1:160358212333:key/291abb40-fe00-447e-84a8-99d507748ae3`.
+- Creation method: `AWS::KMS::Key` and `AWS::KMS::Alias` declared in
+  `infrastructure/serverless/provider-credentials-kms.yml`, deployed through Serverless Framework.
+
+### Migration
+
+- Encrypted the existing Telegram bot token and webhook secret in memory with KMS.
+- Stored one ciphertext item at `PK=PROVIDER_CONNECTION#<id>`, `SK=CREDENTIAL`.
+- Replaced four legacy `secretArn` attributes with `credentialRef`.
+- Verified that the credential item has ciphertext and contains no plaintext secret fields.
+- Scheduled the former provider Secrets Manager secret for deletion with a seven-day recovery
+  window.
+
+### Verification
+
+- KMS key state: `Enabled`; usage: `ENCRYPT_DECRYPT`; origin: `AWS_KMS`.
+- Automatic KMS rotation: enabled every 365 days.
+- Deployed webhook decrypted the migrated ciphertext before rejecting an intentionally invalid
+  signature with `401 WEBHOOK_SIGNATURE_INVALID`.
+- Complete live Telegram smoke succeeded: inbound `/start` persisted as `RECEIVED`, authenticated
+  send returned `202`, and the queued response reached `SENT` with a provider message ID.
+- Full reproduction and rollback notes:
+  [0003-dynamodb-kms-provider-credentials.md](../architecture/0003-dynamodb-kms-provider-credentials.md).
+
 ## 2026-07-25 — Phase 2 applications, clients, and tenants
 
 - Operator: Codex using AWS user `saul`.

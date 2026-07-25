@@ -6,6 +6,7 @@ import { loadPrivateApiRuntimeConfig } from "../../../src/shared/config/private-
 const environment = {
   CONTROL_TABLE: "messaging-control-test",
   DATA_TABLE: "messaging-data-test",
+  PROVIDER_CREDENTIALS_KEY_ARN: "arn:aws:kms:us-east-1:123:key/test",
   STAGE: "test",
   TELEGRAM_OUTBOUND_QUEUE_URL: "https://sqs.example/telegram",
   TELEGRAM_WEBHOOK_BASE_URL: "https://gateway.example",

@@ -3,9 +3,9 @@ import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 
 import { SendTelegramMessage } from "../../application/telegram/send-telegram-message.js";
 import { telegramOutboundEnvelopeSchema } from "../../contracts/queues/telegram-outbound.contract.js";
-import { dynamoDocumentClient, secretsManagerClient } from "../../infrastructure/aws/clients.js";
+import { dynamoDocumentClient, kmsClient } from "../../infrastructure/aws/clients.js";
 import { DynamoTelegramSendStore } from "../../infrastructure/dynamodb/dynamo-telegram-send-store.js";
-import { CachedSecretReader } from "../../infrastructure/secrets/cached-secret-reader.js";
+import { KmsDynamoTelegramCredentialVault } from "../../infrastructure/dynamodb/kms-dynamo-telegram-credential-vault.js";
 import { TelegramMessageApiClient } from "../../infrastructure/telegram/telegram-message-api-client.js";
 import { loadTelegramSenderRuntimeConfig } from "../../shared/config/telegram-sender-runtime-config.js";
 
@@ -46,11 +46,16 @@ const store = new DynamoTelegramSendStore(
   config.CONTROL_TABLE,
   config.DATA_TABLE,
 );
+const credentialVault = new KmsDynamoTelegramCredentialVault(dynamoDocumentClient, kmsClient, {
+  keyArn: config.PROVIDER_CREDENTIALS_KEY_ARN,
+  stage: config.STAGE,
+  tableName: config.CONTROL_TABLE,
+});
 
 export const main = createTelegramSenderHandler({
   sendTelegramMessage: new SendTelegramMessage(
     store,
-    new CachedSecretReader(secretsManagerClient),
+    credentialVault,
     new TelegramMessageApiClient(),
   ),
 });

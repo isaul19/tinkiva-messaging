@@ -29,9 +29,11 @@ Resources:
                     - Arn
               - Effect: Allow
                 Action:
-                  - secretsmanager:GetSecretValue
+                  - kms:Decrypt
                 Resource:
-                  Fn::Sub: arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/tinkiva/messaging/${sls:stage}/provider-connections/*
+                  Fn::GetAtt:
+                    - ProviderCredentialsKey
+                    - Arn
               - Effect: Allow
                 Action:
                   - sqs:SendMessage
@@ -138,9 +140,11 @@ Resources:
                       - Arn
               - Effect: Allow
                 Action:
-                  - secretsmanager:GetSecretValue
+                  - kms:Decrypt
                 Resource:
-                  Fn::Sub: arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/tinkiva/messaging/${sls:stage}/provider-connections/*
+                  Fn::GetAtt:
+                    - ProviderCredentialsKey
+                    - Arn
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup

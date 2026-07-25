@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { z } from "zod";
-
-import type { SecretReader } from "../../../src/application/ports/secret-reader.js";
+import type { TelegramCredentialReader } from "../../../src/application/ports/telegram-credential-vault.js";
 import type {
   TelegramInboundEvent,
   TelegramInboundPublisher,
@@ -19,7 +17,7 @@ class FakeIntegrationReader implements TelegramIntegrationReader {
   public integration: TelegramWebhookIntegration | undefined = {
     applicationId: "app_test",
     integrationId: "int_telegram",
-    secretArn: "telegram-secret",
+    credentialRef: "pc_telegram",
     status: "ACTIVE",
     tenantId: "tenant_test",
   };
@@ -29,17 +27,12 @@ class FakeIntegrationReader implements TelegramIntegrationReader {
   }
 }
 
-class FakeSecretReader implements SecretReader {
-  public getJson<TSchema extends z.ZodType>(
-    _secretId: string,
-    schema: TSchema,
-  ): Promise<z.infer<TSchema>> {
-    return Promise.resolve(
-      schema.parse({
-        botToken: "123456789:bot-token-value-for-tests",
-        webhookSecretToken: webhookSecret,
-      }),
-    );
+class FakeCredentialReader implements TelegramCredentialReader {
+  public get(): Promise<{ botToken: string; webhookSecretToken: string }> {
+    return Promise.resolve({
+      botToken: "123456789:bot-token-value-for-tests",
+      webhookSecretToken: webhookSecret,
+    });
   }
 }
 
@@ -74,7 +67,7 @@ describe("ReceiveTelegramUpdate", () => {
     const publisher = new FakePublisher();
     const useCase = new ReceiveTelegramUpdate(
       new FakeIntegrationReader(),
-      new FakeSecretReader(),
+      new FakeCredentialReader(),
       publisher,
     );
 
@@ -104,7 +97,7 @@ describe("ReceiveTelegramUpdate", () => {
     const publisher = new FakePublisher();
     const useCase = new ReceiveTelegramUpdate(
       new FakeIntegrationReader(),
-      new FakeSecretReader(),
+      new FakeCredentialReader(),
       publisher,
     );
 
@@ -125,7 +118,7 @@ describe("ReceiveTelegramUpdate", () => {
   it("hides missing integrations and accepts unsupported updates without queueing", async () => {
     const integrations = new FakeIntegrationReader();
     const publisher = new FakePublisher();
-    const useCase = new ReceiveTelegramUpdate(integrations, new FakeSecretReader(), publisher);
+    const useCase = new ReceiveTelegramUpdate(integrations, new FakeCredentialReader(), publisher);
     integrations.integration = undefined;
 
     await expect(
@@ -143,7 +136,7 @@ describe("ReceiveTelegramUpdate", () => {
     integrations.integration = {
       applicationId: "app_test",
       integrationId: "int_telegram",
-      secretArn: "telegram-secret",
+      credentialRef: "pc_telegram",
       status: "ACTIVE",
       tenantId: "tenant_test",
     };

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/unbound-method -- Vitest spy assertions intentionally reference mock methods. */
 import { describe, expect, it, vi } from "vitest";
 
-import type { SecretReader } from "../../../src/application/ports/secret-reader.js";
+import type { TelegramCredentialReader } from "../../../src/application/ports/telegram-credential-vault.js";
 import type { TelegramMessageApi } from "../../../src/application/ports/telegram-message-api.js";
 import type { TelegramSendStore } from "../../../src/application/ports/telegram-send-store.js";
 import { SendTelegramMessage } from "../../../src/application/telegram/send-telegram-message.js";
@@ -32,7 +32,7 @@ const claimed = {
   chatId: "123",
   conversationId: "conv_demo",
   messageSortKey: "MESSAGE#date#msg_demo",
-  secretArn: "secret-arn",
+  credentialRef: "pc_demo",
   status: "CLAIMED" as const,
   text: "Hola",
 };
@@ -44,8 +44,8 @@ const createDependencies = () => {
     markSent: vi.fn().mockResolvedValue(undefined),
     release: vi.fn().mockResolvedValue(undefined),
   };
-  const secrets: SecretReader = {
-    getJson: vi.fn().mockResolvedValue({
+  const secrets: TelegramCredentialReader = {
+    get: vi.fn().mockResolvedValue({
       botToken: "not-logged",
       webhookSecretToken: "webhook-secret",
     }),
@@ -83,7 +83,7 @@ describe("SendTelegramMessage", () => {
     const service = new SendTelegramMessage(store, secrets, api);
 
     await expect(service.execute(envelope)).resolves.toEqual({ status: "TERMINAL" });
-    expect(secrets.getJson).not.toHaveBeenCalled();
+    expect(secrets.get).not.toHaveBeenCalled();
     expect(api.sendText).not.toHaveBeenCalled();
   });
 

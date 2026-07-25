@@ -6,7 +6,7 @@ export interface CreateTelegramIntegrationRecords {
   displayName: string;
   integrationId: string;
   providerConnectionId: string;
-  secretArn: string;
+  credentialRef: string;
   tenantId: string;
   webhookKey: string;
   webhookUrl: string;

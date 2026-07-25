@@ -52,7 +52,7 @@
 ## Phase 3 — Telegram
 
 - [x] Bot credential validation and registration endpoint.
-- [x] Provider credential storage in Secrets Manager.
+- [x] Per-connection provider credential ciphertext in DynamoDB, encrypted with a stage KMS key.
 - [x] Secret-token-protected Telegram webhook.
 - [x] FIFO publication with conversation ordering and provider-event deduplication.
 - [x] Inbound text normalization and atomic identity/conversation/message persistence.
@@ -60,6 +60,7 @@
 - [x] Telegram outbound FIFO publisher and sender Lambda.
 - [x] Durable outgoing message states and retry lease.
 - [x] TypeScript SDK `sendMessage` method.
+- [x] Live inbound and outbound Telegram smoke test through webhook, SQS, DynamoDB, KMS, and sender.
 - [x] Dedicated least-privilege IAM roles and packaged-template validators.
 - [x] Deployed AWS stack and authenticated non-destructive smoke test.
 - [x] Reproducible phase 3 deployment documentation.

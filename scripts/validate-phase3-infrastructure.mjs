@@ -26,6 +26,8 @@ const resource = (logicalId, expectedType) => {
   return value;
 };
 
+resource("ProviderCredentialsKey", "AWS::KMS::Key");
+resource("ProviderCredentialsKeyAlias", "AWS::KMS::Alias");
 resource("TelegramWebhookLambdaFunction", "AWS::Lambda::Function");
 const webhookRole = resource("TelegramWebhookLambdaRole", "AWS::IAM::Role");
 const webhookStatements = webhookRole.Properties.Policies.flatMap(
@@ -35,7 +37,7 @@ const webhookActions = webhookStatements.flatMap((statement) =>
   Array.isArray(statement.Action) ? statement.Action : [statement.Action],
 );
 
-for (const action of ["dynamodb:GetItem", "secretsmanager:GetSecretValue", "sqs:SendMessage"]) {
+for (const action of ["dynamodb:GetItem", "kms:Decrypt", "sqs:SendMessage"]) {
   assert(webhookActions.includes(action), `TelegramWebhookLambdaRole must allow ${action}`);
 }
 
@@ -113,7 +115,7 @@ for (const action of [
   "sqs:GetQueueAttributes",
   "dynamodb:GetItem",
   "dynamodb:UpdateItem",
-  "secretsmanager:GetSecretValue",
+  "kms:Decrypt",
 ]) {
   assert(senderActions.includes(action), `TelegramSenderLambdaRole must allow ${action}`);
 }
@@ -154,11 +156,7 @@ const privateActions = privateRole.Properties.Policies.flatMap((policy) =>
   ),
 );
 
-for (const action of [
-  "dynamodb:UpdateItem",
-  "secretsmanager:CreateSecret",
-  "secretsmanager:DeleteSecret",
-]) {
+for (const action of ["dynamodb:DeleteItem", "dynamodb:UpdateItem", "kms:Encrypt"]) {
   assert(privateActions.includes(action), `PrivateApiLambdaRole must allow ${action}`);
 }
 

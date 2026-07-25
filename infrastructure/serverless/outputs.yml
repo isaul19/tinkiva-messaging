@@ -37,6 +37,12 @@ Outputs:
     Description: Standard queue for asynchronous media processing.
     Value:
       Ref: MediaQueue
+  ProviderCredentialsKeyArn:
+    Description: KMS key encrypting provider credentials stored in DynamoDB.
+    Value:
+      Fn::GetAtt:
+        - ProviderCredentialsKey
+        - Arn
   AuthPepperSecretArn:
     Description: ARN of the generated application authentication pepper.
     Value:

@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const telegramWebhookRuntimeConfigSchema = z.object({
   CONTROL_TABLE: z.string().min(1),
+  PROVIDER_CREDENTIALS_KEY_ARN: z.string().min(1),
+  STAGE: z.string().min(1),
   INBOUND_QUEUE_URL: z.url(),
 });
 

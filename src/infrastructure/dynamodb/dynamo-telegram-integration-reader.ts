@@ -10,7 +10,7 @@ import type {
 const webhookIntegrationSchema = z.looseObject({
   applicationId: z.string().min(1),
   integrationId: z.string().min(1),
-  secretArn: z.string().min(1),
+  credentialRef: z.string().min(1),
   status: z.enum(["ACTIVE", "DISABLED", "ERROR", "PENDING"]),
   tenantId: z.string().min(1),
 });

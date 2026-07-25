@@ -102,6 +102,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - dynamodb:DeleteItem
                   - dynamodb:GetItem
                   - dynamodb:PutItem
                   - dynamodb:Query
@@ -129,11 +130,11 @@ Resources:
                     - Arn
               - Effect: Allow
                 Action:
-                  - secretsmanager:CreateSecret
-                  - secretsmanager:DeleteSecret
-                  - secretsmanager:TagResource
+                  - kms:Encrypt
                 Resource:
-                  Fn::Sub: arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/tinkiva/messaging/${sls:stage}/provider-connections/*
+                  Fn::GetAtt:
+                    - ProviderCredentialsKey
+                    - Arn
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup

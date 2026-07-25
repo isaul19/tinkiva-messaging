@@ -581,11 +581,28 @@ Crear también el vínculo inverso en la misma transacción:
   "provider": "WHATSAPP",
   "scope": "TENANT",
   "tenantId": "tenant_01",
-  "secretArn": "arn:aws:secretsmanager:...:secret:/tinkiva/messaging/prod/provider-connections/pc_01",
+  "credentialRef": "pc_01",
+  "credentialStorage": "DYNAMODB_KMS",
   "webhookKey": "<32-byte-random-token>",
   "status": "ACTIVE"
 }
 ```
+
+La credencial vive en un item separado y cifrado por la aplicación:
+
+```json
+{
+  "PK": "PROVIDER_CONNECTION#pc_01",
+  "SK": "CREDENTIAL",
+  "entityType": "PROVIDER_CREDENTIAL",
+  "provider": "WHATSAPP",
+  "credentialCiphertext": "<base64-kms-ciphertext>",
+  "credentialKeyArn": "<stage-kms-key-arn>",
+  "credentialVersion": 1
+}
+```
+
+Nunca incluir tokens o secretos en texto plano dentro del item.
 
 #### ChannelIntegration
 
@@ -910,8 +927,8 @@ HTTPS al endpoint de integración. El gateway debe:
 
 1. Validar el formato.
 2. Validar la credencial contra el proveedor.
-3. Crear o actualizar un secreto en Secrets Manager.
-4. Guardar en DynamoDB solo el ARN del secreto y metadatos no sensibles.
+3. Cifrar la credencial con la clave KMS del entorno y un contexto ligado a la conexión.
+4. Guardar en DynamoDB solo el ciphertext, la versión y metadatos no sensibles.
 5. Eliminar las credenciales de memoria después de la operación.
 6. Redactarlas de todos los logs y errores.
 7. Nunca devolverlas en la respuesta.
@@ -921,14 +938,18 @@ La aplicación que relayee el token durante el onboarding tampoco debe persistir
 Una evolución posterior puede alojar una pantalla de onboarding directamente en el gateway o
 integrar Meta Embedded Signup para que el token no atraviese el backend del MVP.
 
-#### Nombre de secretos
+#### Claves y registros
 
 ```text
-/tinkiva/messaging/{stage}/provider-connections/{providerConnectionId}
-/tinkiva/messaging/{stage}/auth/pepper
-/tinkiva/messaging/{stage}/auth/jwt-signing
-/tinkiva/messaging/{stage}/event-endpoints/{endpointId}
+KMS alias: alias/tinkiva-messaging-provider-credentials-{stage}
+DynamoDB PK: PROVIDER_CONNECTION#{providerConnectionId}
+DynamoDB SK: CREDENTIAL
+Secrets Manager: /tinkiva/messaging/{stage}/auth/pepper
+Secrets Manager: /tinkiva/messaging/{stage}/auth/jwt-signing
 ```
+
+Se crea una clave KMS por entorno, no una clave por empresa. Cada conexión mantiene su propio item
+cifrado; no se acumulan todas las empresas dentro de un único secreto o documento.
 
 #### Secreto de WhatsApp
 
@@ -980,15 +1001,16 @@ Al registrar el bot:
 2. Generar `webhookKey` aleatorio para la URL.
 3. Generar `webhookSecretToken` aleatorio.
 4. Ejecutar `setWebhook` con ambos.
-5. Guardar solo `secretArn`, `botId`, `botUsername` y estado en DynamoDB.
+5. Guardar el ciphertext en el item `CREDENTIAL` y solo `credentialRef`, `botId`, `botUsername` y
+   estado en los metadatos.
 
-#### IAM de secretos
+#### IAM de credenciales
 
-- `whatsapp-sender` solo puede leer secretos bajo el prefijo de conexiones WhatsApp.
-- `telegram-sender` solo puede leer secretos de Telegram.
-- Los webhooks solo leen lo necesario para verificar firmas.
-- `private-api` puede crear o actualizar secretos durante onboarding, pero no listar valores.
-- Ninguna función tendrá `secretsmanager:*` sobre `*`.
+- `private-api` puede escribir el item exacto y usar `kms:Encrypt` con la clave del entorno.
+- Cada sender y webhook solo puede leer DynamoDB y usar `kms:Decrypt` con esa clave.
+- Las Lambdas de proveedores no acceden a Secrets Manager.
+- Los secretos de autenticación conservan permisos de Secrets Manager limitados a su ARN.
+- Ninguna función tendrá `kms:*` ni `secretsmanager:*` sobre `*`.
 
 ### 10.3 C. Gateway hacia el webhook de cada aplicación
 
@@ -1360,7 +1382,7 @@ El `POST` debe:
 
 1. Conservar el body crudo.
 2. Resolver `ProviderConnection` usando `webhookKey`.
-3. Leer el `appSecret` desde Secrets Manager.
+3. Leer el ciphertext de la conexión desde DynamoDB y descifrar el `appSecret` con KMS.
 4. Validar `X-Hub-Signature-256` mediante HMAC SHA-256 del body crudo.
 5. Extraer `phone_number_id` del evento.
 6. Resolver `ChannelIntegration`.
@@ -1946,11 +1968,12 @@ función.
 
 Ejemplos:
 
-- Webhooks: `dynamodb:GetItem`, `sqs:SendMessage`, lectura limitada de Secrets Manager.
+- Webhooks: `dynamodb:GetItem`, `kms:Decrypt` sobre la clave exacta y `sqs:SendMessage`.
 - `inbound-processor`: DynamoDB transacciones, SQS app-events/media y escritura S3 restringida.
-- Senders: consumo de su cola, lectura del secreto de su proveedor y actualización de mensajes.
-- Dispatcher: consumo de app-events y lectura del secreto de firma del endpoint.
-- API privada: operaciones de control, envío a outbound queues y gestión limitada de secretos.
+- Senders: consumo de su cola, `dynamodb:GetItem`, `kms:Decrypt` y actualización de mensajes.
+- Dispatcher: consumo de app-events y lectura limitada de su material de firma.
+- API privada: operaciones de control, envío a outbound queues, escritura del item de credencial y
+  `kms:Encrypt`.
 - Ninguna Lambda necesita acceso a PostgreSQL ni a la VPC del EC2.
 
 Mantener estas Lambdas fuera de la VPC salvo que aparezca una necesidad real. Esto permite acceso
@@ -2011,7 +2034,8 @@ Esos secretos pertenecen al gateway.
 - Redactar `Authorization`, tokens, teléfonos y contenido sensible de logs.
 - Utilizar comparación en tiempo constante para firmas y secretos.
 - Guardar auditoría de creación, rotación, suspensión y eliminación de integraciones.
-- No devolver `secretArn` a aplicaciones normales.
+- No devolver `credentialCiphertext`, ARN de KMS ni referencias internas de credenciales a las
+  aplicaciones normales.
 - Aplicar rate limiting por `applicationId` dentro del gateway; los API keys de API Gateway, si se
   usan, serán únicamente una capa de cuota adicional.
 - Deshabilitar una integración inmediatamente cuando una credencial sea revocada.

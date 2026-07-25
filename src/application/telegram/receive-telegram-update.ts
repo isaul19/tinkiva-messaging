@@ -1,12 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
 
-import type { SecretReader } from "../ports/secret-reader.js";
+import type { TelegramCredentialReader } from "../ports/telegram-credential-vault.js";
 import type { TelegramInboundPublisher } from "../ports/telegram-inbound-publisher.js";
 import type { TelegramIntegrationReader } from "../ports/telegram-integration-reader.js";
-import {
-  telegramSecretSchema,
-  type TelegramMessage,
-  type TelegramUpdate,
+import type {
+  TelegramMessage,
+  TelegramUpdate,
 } from "../../contracts/providers/telegram.contract.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
 
@@ -25,11 +24,11 @@ export interface ReceiveTelegramUpdateResult {
 export class ReceiveTelegramUpdate {
   readonly #integrations: TelegramIntegrationReader;
   readonly #publisher: TelegramInboundPublisher;
-  readonly #secrets: SecretReader;
+  readonly #secrets: TelegramCredentialReader;
 
   public constructor(
     integrations: TelegramIntegrationReader,
-    secrets: SecretReader,
+    secrets: TelegramCredentialReader,
     publisher: TelegramInboundPublisher,
   ) {
     this.#integrations = integrations;
@@ -46,7 +45,7 @@ export class ReceiveTelegramUpdate {
       throw new ApplicationError("WEBHOOK_NOT_FOUND", "The requested webhook does not exist.", 404);
     }
 
-    const secret = await this.#secrets.getJson(integration.secretArn, telegramSecretSchema);
+    const secret = await this.#secrets.get(integration.credentialRef);
 
     if (!secretsMatch(secret.webhookSecretToken, command.secretToken)) {
       throw new ApplicationError(

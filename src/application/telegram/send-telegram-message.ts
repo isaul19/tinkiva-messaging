@@ -1,8 +1,7 @@
-import type { SecretReader } from "../ports/secret-reader.js";
+import type { TelegramCredentialReader } from "../ports/telegram-credential-vault.js";
 import type { TelegramMessageApi } from "../ports/telegram-message-api.js";
 import type { TelegramSendStore } from "../ports/telegram-send-store.js";
 import type { TelegramOutboundEnvelope } from "../../contracts/queues/telegram-outbound.contract.js";
-import { telegramSecretSchema } from "../../contracts/providers/telegram.contract.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
 
 export interface SendTelegramMessageResult {
@@ -11,10 +10,14 @@ export interface SendTelegramMessageResult {
 
 export class SendTelegramMessage {
   readonly #api: TelegramMessageApi;
-  readonly #secrets: SecretReader;
+  readonly #secrets: TelegramCredentialReader;
   readonly #store: TelegramSendStore;
 
-  public constructor(store: TelegramSendStore, secrets: SecretReader, api: TelegramMessageApi) {
+  public constructor(
+    store: TelegramSendStore,
+    secrets: TelegramCredentialReader,
+    api: TelegramMessageApi,
+  ) {
     this.#api = api;
     this.#secrets = secrets;
     this.#store = store;
@@ -36,7 +39,7 @@ export class SendTelegramMessage {
     }
 
     try {
-      const secret = await this.#secrets.getJson(claimed.secretArn, telegramSecretSchema);
+      const secret = await this.#secrets.get(claimed.credentialRef);
       const result = await this.#api.sendText({
         botToken: secret.botToken,
         chatId: claimed.chatId,

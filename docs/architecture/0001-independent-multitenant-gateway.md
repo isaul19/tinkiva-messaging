@@ -27,4 +27,5 @@ public contracts do not expose Meta or Telegram transport payloads.
 - Every repository and authorization query must include a mandatory tenant/application boundary.
 - Cross-application tenant sharing requires an explicit administrative link and audit record.
 - Eventual consistency is accepted between a consumer database and the gateway.
-- Provider secrets belong in AWS Secrets Manager, never consumer databases or source control.
+- Provider credentials belong in the gateway control plane as KMS-encrypted DynamoDB ciphertext,
+  never in consumer databases, plaintext attributes, environment files, or source control.

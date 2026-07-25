@@ -4,7 +4,7 @@ import { ulid } from "ulid";
 
 import type { TelegramBotApi } from "../ports/telegram-bot-api.js";
 import type { TelegramIntegrationStore } from "../ports/telegram-integration-store.js";
-import type { TelegramSecretWriter } from "../ports/telegram-secret-writer.js";
+import type { TelegramCredentialWriter } from "../ports/telegram-credential-vault.js";
 import type {
   RegisterTelegramIntegrationRequest,
   TelegramIntegrationResponse,
@@ -17,19 +17,18 @@ export interface RegisterTelegramIntegrationCommand {
 }
 
 export interface RegisterTelegramIntegrationConfig {
-  stage: string;
   webhookBaseUrl: string;
 }
 
 export class RegisterTelegramIntegration {
   readonly #botApi: TelegramBotApi;
   readonly #config: RegisterTelegramIntegrationConfig;
-  readonly #secrets: TelegramSecretWriter;
+  readonly #secrets: TelegramCredentialWriter;
   readonly #store: TelegramIntegrationStore;
 
   public constructor(
     botApi: TelegramBotApi,
-    secrets: TelegramSecretWriter,
+    secrets: TelegramCredentialWriter,
     store: TelegramIntegrationStore,
     config: RegisterTelegramIntegrationConfig,
   ) {
@@ -48,14 +47,10 @@ export class RegisterTelegramIntegration {
     const webhookKey = randomBytes(32).toString("base64url");
     const webhookSecretToken = randomBytes(32).toString("base64url");
     const webhookUrl = `${this.#config.webhookBaseUrl.replace(/\/+$/, "")}/webhooks/telegram/${webhookKey}`;
-    const secretName =
-      `/tinkiva/messaging/${this.#config.stage}/provider-connections/` + providerConnectionId;
-    const secretArn = await this.#secrets.create({
+    const credentialRef = await this.#secrets.create({
       applicationId: command.applicationId,
       botToken: command.request.botToken,
       providerConnectionId,
-      secretName,
-      stage: this.#config.stage,
       tenantId: command.tenantId,
       webhookSecretToken,
     });
@@ -70,13 +65,13 @@ export class RegisterTelegramIntegration {
         displayName: command.request.displayName,
         integrationId,
         providerConnectionId,
-        secretArn,
+        credentialRef,
         tenantId: command.tenantId,
         webhookKey,
         webhookUrl,
       });
     } catch (error) {
-      await this.#secrets.deleteImmediately(secretArn);
+      await this.#secrets.deleteImmediately(credentialRef);
       throw error;
     }
 

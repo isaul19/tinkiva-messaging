@@ -1,7 +1,7 @@
 export interface TelegramWebhookIntegration {
   applicationId: string;
   integrationId: string;
-  secretArn: string;
+  credentialRef: string;
   status: "ACTIVE" | "DISABLED" | "ERROR" | "PENDING";
   tenantId: string;
 }

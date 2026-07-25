@@ -81,7 +81,7 @@ export class DynamoTelegramSendStore implements TelegramSendStore {
 
     if (
       providerConnection?.status !== "ACTIVE" ||
-      typeof providerConnection.secretArn !== "string"
+      typeof providerConnection.credentialRef !== "string"
     ) {
       await this.#failBeforeClaim(messageKey, "INTEGRATION_DISABLED");
       return { status: "TERMINAL" };
@@ -129,7 +129,7 @@ export class DynamoTelegramSendStore implements TelegramSendStore {
       chatId: message.chatId,
       conversationId: reference.conversationId,
       messageSortKey: reference.messageSortKey,
-      secretArn: providerConnection.secretArn,
+      credentialRef: providerConnection.credentialRef,
       status: "CLAIMED",
       text: message.text,
     };

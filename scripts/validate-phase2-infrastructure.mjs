@@ -44,11 +44,13 @@ const privateActions = privateRole.Properties.Policies.flatMap((policy) =>
 );
 
 for (const requiredAction of [
+  "dynamodb:DeleteItem",
   "dynamodb:GetItem",
   "dynamodb:PutItem",
   "dynamodb:Query",
   "dynamodb:TransactWriteItems",
   "dynamodb:UpdateItem",
+  "kms:Encrypt",
   "sqs:SendMessage",
 ]) {
   assert(

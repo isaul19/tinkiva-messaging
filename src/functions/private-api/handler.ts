@@ -12,11 +12,11 @@ import { registerTelegramIntegrationRequestSchema } from "../../contracts/api/in
 import { sendMessageRequestSchema } from "../../contracts/api/message.contract.js";
 import { ensureTenantRequestSchema } from "../../contracts/api/tenant.contract.js";
 import { tenantIdSchema } from "../../contracts/shared/identifiers.js";
-import { dynamoDocumentClient, secretsManagerClient } from "../../infrastructure/aws/clients.js";
+import { dynamoDocumentClient, kmsClient } from "../../infrastructure/aws/clients.js";
 import { DynamoOutgoingMessageStore } from "../../infrastructure/dynamodb/dynamo-outgoing-message-store.js";
+import { KmsDynamoTelegramCredentialVault } from "../../infrastructure/dynamodb/kms-dynamo-telegram-credential-vault.js";
 import { DynamoTelegramIntegrationStore } from "../../infrastructure/dynamodb/dynamo-telegram-integration-store.js";
 import { DynamoTenantStore } from "../../infrastructure/dynamodb/dynamo-tenant-store.js";
-import { SecretsManagerTelegramSecretWriter } from "../../infrastructure/secrets/secrets-manager-telegram-secret-writer.js";
 import { SqsTelegramOutboundPublisher } from "../../infrastructure/sqs/sqs-telegram-outbound-publisher.js";
 import { TelegramBotApiClient } from "../../infrastructure/telegram/telegram-bot-api-client.js";
 import { loadPrivateApiRuntimeConfig } from "../../shared/config/private-api-runtime-config.js";
@@ -183,6 +183,11 @@ const outgoingMessageStore = new DynamoOutgoingMessageStore(
   config.CONTROL_TABLE,
   config.DATA_TABLE,
 );
+const credentialVault = new KmsDynamoTelegramCredentialVault(dynamoDocumentClient, kmsClient, {
+  keyArn: config.PROVIDER_CREDENTIALS_KEY_ARN,
+  stage: config.STAGE,
+  tableName: config.CONTROL_TABLE,
+});
 
 export const main = createPrivateApiHandler({
   ensureTenant: new EnsureTenant(tenantStore),
@@ -193,10 +198,9 @@ export const main = createPrivateApiHandler({
   ),
   registerTelegramIntegration: new RegisterTelegramIntegration(
     new TelegramBotApiClient(),
-    new SecretsManagerTelegramSecretWriter(secretsManagerClient),
+    credentialVault,
     telegramIntegrationStore,
     {
-      stage: config.STAGE,
       webhookBaseUrl: config.TELEGRAM_WEBHOOK_BASE_URL,
     },
   ),
