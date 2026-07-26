@@ -15,7 +15,7 @@
     "build": "tsc --project tsconfig.build.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "infra:validate": "node scripts/validate-packaged-infrastructure.mjs && node scripts/validate-cloudformation-shape.mjs && node scripts/validate-phase2-infrastructure.mjs && node scripts/validate-phase3-infrastructure.mjs",
+    "infra:validate": "node scripts/validate-packaged-infrastructure.mjs && node scripts/validate-cloudformation-shape.mjs && node scripts/validate-phase2-infrastructure.mjs && node scripts/validate-phase3-infrastructure.mjs && node scripts/validate-phase4-infrastructure.mjs",
     "lint": "eslint .",
     "package": "serverless package --stage dev && pnpm infra:validate",
     "test": "vitest run",

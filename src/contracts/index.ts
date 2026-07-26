@@ -35,3 +35,7 @@ export {
   queueEnvelopeSchema,
   type QueueEnvelope,
 } from "./queues/queue-envelope.contract.js";
+export * from "./api/whatsapp-integration.contract.js";
+export * from "./providers/whatsapp.contract.js";
+export * from "./queues/whatsapp-inbound.contract.js";
+export * from "./queues/whatsapp-outbound.contract.js";

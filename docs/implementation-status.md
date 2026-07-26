@@ -67,3 +67,25 @@
 - [ ] Complete a live end-to-end test with a real BotFather token and Telegram `chat.id`.
 - [ ] Add inbound and outbound media processing.
 - [ ] Publish normalized application events; this belongs to the application-delivery phase.
+
+## Phase 4 — WhatsApp Cloud API
+
+- [x] Meta WABA and Phone Number ID validation.
+- [x] Per-connection access token, App Secret, and verification token ciphertext in DynamoDB/KMS.
+- [x] App-level `messages` Webhooks bootstrap, base WABA subscription, callback override, and GET
+      challenge handling.
+- [x] Raw-body `X-Hub-Signature-256` verification.
+- [x] FIFO publication of inbound messages and provider status updates.
+- [x] BSUID-first identity normalization with phone aliases.
+- [x] Inbound text persistence and monotonic `SENT`/`DELIVERED`/`READ`/`FAILED` states.
+- [x] Provider-neutral `POST /v1/messages` dispatch to the WhatsApp outbound FIFO queue.
+- [x] WhatsApp sender Lambda with durable processing lease and retry behavior.
+- [x] WABA-level uniqueness guard to prevent callback overwrite.
+- [x] Dedicated least-privilege IAM roles and phase 4 packaged-template validator.
+- [x] Deployed AWS stack, public webhook negative smoke, and authenticated onboarding negative
+      smoke.
+- [x] Endpoint, payload, credential-storage, deployment, and rollback documentation.
+- [x] Complete live Meta app/WABA onboarding and activate the isolated tenant callback.
+- [x] Complete a real inbound message and outbound reply through `DELIVERED`.
+- [ ] Add approved template and media sending.
+- [ ] Support one shared WABA provider connection with multiple phone-number integrations.

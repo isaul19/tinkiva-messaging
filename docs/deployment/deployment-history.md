@@ -1,5 +1,61 @@
 # Deployment history
 
+## 2026-07-25 — Phase 4 WhatsApp Cloud API
+
+- Operator: Codex using AWS user `saul`.
+- Stage: `dev`.
+- Region: `us-east-1`.
+- AWS account: `160358212333`.
+- CloudFormation stack: `tinkiva-messaging-gateway-dev`.
+- Final status: `UPDATE_COMPLETE`.
+- Last update: `2026-07-26T01:22:42.639000+00:00`.
+- API URL: `https://2myga1gnfl.execute-api.us-east-1.amazonaws.com`.
+- Graph API version: `v25.0`.
+- Command:
+
+  ```powershell
+  pnpm exec serverless deploy --stage dev --region us-east-1 `
+    --param="alarmEmail=porrasemiliosaul@gmail.com" `
+    --param="publicBaseUrl=https://2myga1gnfl.execute-api.us-east-1.amazonaws.com" `
+    --param="whatsappGraphApiVersion=v25.0"
+  ```
+
+### Added
+
+- Protected WhatsApp onboarding route.
+- Meta challenge and signed webhook routes.
+- WhatsApp webhook and sender Lambdas with dedicated IAM roles.
+- WhatsApp sender SQS event-source mapping.
+- DynamoDB/KMS per-connection credential vault shared safely with Telegram.
+- WABA, phone-number, provider-connection, integration, tenant, and webhook references.
+- Inbound BSUID/phone normalization, outbound delivery, and provider status updates.
+
+The WhatsApp queue, DLQ, and DLQ alarm were already declared in phase 1 and are now connected to the
+runtime sender.
+
+### Verification
+
+- Repository verification: 38 test files and 90 tests passed.
+- Coverage: 95.54% statements, 82.84% branches, 98.09% functions, 95.71% lines.
+- CloudFormation packaging: 9 Lambdas, 11 routes, 9 IAM roles, and 3 SQS event-source mappings.
+- All phase 1-4 infrastructure validators passed.
+- Unknown webhook key returned `404`.
+- Authenticated onboarding with an intentionally invalid Meta credential returned
+  `400 PROVIDER_CREDENTIAL_INVALID`.
+- DynamoDB still contained zero WhatsApp records after the negative smoke.
+- Live Meta app Webhooks subscription, base WABA subscription, tenant callback override, and GET
+  challenge succeeded.
+- The demo tenant, integration, provider connection, WABA, phone, and webhook references are
+  `ACTIVE`.
+- A real inbound message persisted as `RECEIVED` with its BSUID identity, phone alias, and open
+  conversation.
+- A real outbound reply passed `202 QUEUED -> SENT -> DELIVERED`.
+- The smoke exposed and verified fixes for inbound-processor `dynamodb:GetItem` access and
+  phone-alias delivery from BSUID-based identities.
+
+Full reproduction, resource behavior, rollback, and live-smoke evidence:
+[phase-4-deployment.md](./phase-4-deployment.md).
+
 ## 2026-07-25 — Provider credential migration to DynamoDB and KMS
 
 - Operator: Codex using AWS user `saul`.

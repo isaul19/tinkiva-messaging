@@ -10,10 +10,13 @@ const environment = {
   STAGE: "test",
   TELEGRAM_OUTBOUND_QUEUE_URL: "https://sqs.example/telegram",
   TELEGRAM_WEBHOOK_BASE_URL: "https://gateway.example",
+  WHATSAPP_GRAPH_API_VERSION: "v25.0",
+  WHATSAPP_OUTBOUND_QUEUE_URL: "https://sqs.example/whatsapp",
+  WHATSAPP_WEBHOOK_BASE_URL: "https://gateway.example",
 };
 
 describe("private API runtime configuration", () => {
-  it("loads Telegram onboarding and outbound settings", () => {
+  it("loads Telegram and WhatsApp onboarding and outbound settings", () => {
     expect(loadPrivateApiRuntimeConfig(environment)).toEqual(environment);
   });
 

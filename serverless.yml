@@ -132,6 +132,10 @@ functions:
       TELEGRAM_OUTBOUND_QUEUE_URL:
         Ref: TelegramOutboundQueue
       TELEGRAM_WEBHOOK_BASE_URL: ${param:publicBaseUrl, 'https://messaging-api.tinkiva.com'}
+      WHATSAPP_GRAPH_API_VERSION: ${param:whatsappGraphApiVersion, 'v25.0'}
+      WHATSAPP_OUTBOUND_QUEUE_URL:
+        Ref: WhatsappOutboundQueue
+      WHATSAPP_WEBHOOK_BASE_URL: ${param:publicBaseUrl, 'https://messaging-api.tinkiva.com'}
     events:
       - httpApi:
           path: /v1/tenants
@@ -150,6 +154,11 @@ functions:
             name: applicationAuthorizer
       - httpApi:
           path: /v1/tenants/{tenantId}/integrations/telegram
+          method: POST
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/tenants/{tenantId}/integrations/whatsapp
           method: POST
           authorizer:
             name: applicationAuthorizer
@@ -179,6 +188,31 @@ functions:
     events:
       - httpApi:
           path: /webhooks/telegram/{webhookKey}
+          method: POST
+
+  whatsappWebhook:
+    handler: src/functions/whatsapp-webhook/handler.main
+    description: Verifies Meta signatures and enqueues WhatsApp webhook events.
+    timeout: 8
+    role:
+      Fn::GetAtt:
+        - WhatsappWebhookLambdaRole
+        - Arn
+    environment:
+      CONTROL_TABLE:
+        Ref: MessagingControlTable
+      PROVIDER_CREDENTIALS_KEY_ARN:
+        Fn::GetAtt:
+          - ProviderCredentialsKey
+          - Arn
+      INBOUND_QUEUE_URL:
+        Ref: InboundQueue
+    events:
+      - httpApi:
+          path: /webhooks/whatsapp/{webhookKey}
+          method: GET
+      - httpApi:
+          path: /webhooks/whatsapp/{webhookKey}
           method: POST
 
   inboundProcessor:
@@ -229,11 +263,38 @@ functions:
           batchSize: 10
           functionResponseType: ReportBatchItemFailures
 
+  whatsappSender:
+    handler: src/functions/whatsapp-sender/handler.main
+    description: Sends queued WhatsApp text messages and persists provider status.
+    timeout: 30
+    role:
+      Fn::GetAtt:
+        - WhatsappSenderLambdaRole
+        - Arn
+    environment:
+      CONTROL_TABLE:
+        Ref: MessagingControlTable
+      DATA_TABLE:
+        Ref: MessagingDataTable
+      PROVIDER_CREDENTIALS_KEY_ARN:
+        Fn::GetAtt:
+          - ProviderCredentialsKey
+          - Arn
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - WhatsappOutboundQueue
+              - Arn
+          batchSize: 10
+          functionResponseType: ReportBatchItemFailures
+
 resources:
   - ${file(./infrastructure/serverless/conditions.yml)}
   - ${file(./infrastructure/serverless/iam.yml)}
   - ${file(./infrastructure/serverless/phase2-iam.yml)}
   - ${file(./infrastructure/serverless/phase3-iam.yml)}
+  - ${file(./infrastructure/serverless/phase4-iam.yml)}
   - ${file(./infrastructure/serverless/dynamodb.yml)}
   - ${file(./infrastructure/serverless/provider-credentials-kms.yml)}
   - ${file(./infrastructure/serverless/queues.yml)}

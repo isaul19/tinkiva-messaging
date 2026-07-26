@@ -125,9 +125,12 @@ Resources:
                 Action:
                   - sqs:SendMessage
                 Resource:
-                  Fn::GetAtt:
-                    - TelegramOutboundQueue
-                    - Arn
+                  - Fn::GetAtt:
+                      - TelegramOutboundQueue
+                      - Arn
+                  - Fn::GetAtt:
+                      - WhatsappOutboundQueue
+                      - Arn
               - Effect: Allow
                 Action:
                   - kms:Encrypt

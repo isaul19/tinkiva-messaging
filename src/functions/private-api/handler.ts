@@ -3,22 +3,32 @@ import { SQSClient } from "@aws-sdk/client-sqs";
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { z } from "zod";
 
+import { QueueMessage } from "../../application/messages/queue-message.js";
 import { QueueTelegramMessage } from "../../application/messages/queue-telegram-message.js";
+import { QueueWhatsappMessage } from "../../application/messages/queue-whatsapp-message.js";
 import { RegisterTelegramIntegration } from "../../application/telegram/register-telegram-integration.js";
 import { EnsureTenant } from "../../application/tenants/ensure-tenant.js";
 import { GetTenant } from "../../application/tenants/get-tenant.js";
+import { RegisterWhatsappIntegration } from "../../application/whatsapp/register-whatsapp-integration.js";
 import type { ApplicationScope } from "../../contracts/api/auth.contract.js";
 import { registerTelegramIntegrationRequestSchema } from "../../contracts/api/integration.contract.js";
 import { sendMessageRequestSchema } from "../../contracts/api/message.contract.js";
 import { ensureTenantRequestSchema } from "../../contracts/api/tenant.contract.js";
+import { registerWhatsappIntegrationRequestSchema } from "../../contracts/api/whatsapp-integration.contract.js";
 import { tenantIdSchema } from "../../contracts/shared/identifiers.js";
 import { dynamoDocumentClient, kmsClient } from "../../infrastructure/aws/clients.js";
+import { DynamoMessageIntegrationReader } from "../../infrastructure/dynamodb/dynamo-message-integration-reader.js";
 import { DynamoOutgoingMessageStore } from "../../infrastructure/dynamodb/dynamo-outgoing-message-store.js";
 import { KmsDynamoTelegramCredentialVault } from "../../infrastructure/dynamodb/kms-dynamo-telegram-credential-vault.js";
 import { DynamoTelegramIntegrationStore } from "../../infrastructure/dynamodb/dynamo-telegram-integration-store.js";
 import { DynamoTenantStore } from "../../infrastructure/dynamodb/dynamo-tenant-store.js";
+import { KmsDynamoWhatsappCredentialVault } from "../../infrastructure/dynamodb/kms-dynamo-whatsapp-credential-vault.js";
+import { DynamoWhatsappIntegrationStore } from "../../infrastructure/dynamodb/dynamo-whatsapp-integration-store.js";
+import { DynamoWhatsappOutgoingMessageStore } from "../../infrastructure/dynamodb/dynamo-whatsapp-outgoing-message-store.js";
 import { SqsTelegramOutboundPublisher } from "../../infrastructure/sqs/sqs-telegram-outbound-publisher.js";
+import { SqsWhatsappOutboundPublisher } from "../../infrastructure/sqs/sqs-whatsapp-outbound-publisher.js";
 import { TelegramBotApiClient } from "../../infrastructure/telegram/telegram-bot-api-client.js";
+import { WhatsappManagementApiClient } from "../../infrastructure/whatsapp/whatsapp-management-api-client.js";
 import { loadPrivateApiRuntimeConfig } from "../../shared/config/private-api-runtime-config.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
 import { resolveCorrelationId } from "../../shared/http/correlation-id.js";
@@ -47,16 +57,18 @@ const logger = new Logger({
 export interface PrivateApiHandlerDependencies {
   ensureTenant: Pick<EnsureTenant, "execute">;
   getTenant: Pick<GetTenant, "byExternalAccount" | "byTenantId">;
-  queueTelegramMessage: Pick<QueueTelegramMessage, "execute">;
+  queueMessage: Pick<QueueMessage, "execute">;
   registerTelegramIntegration: Pick<RegisterTelegramIntegration, "execute">;
+  registerWhatsappIntegration: Pick<RegisterWhatsappIntegration, "execute">;
 }
 
 export const createPrivateApiHandler =
   ({
     ensureTenant,
     getTenant,
-    queueTelegramMessage,
+    queueMessage,
     registerTelegramIntegration,
+    registerWhatsappIntegration,
   }: PrivateApiHandlerDependencies) =>
   async (event: PrivateApiEvent): Promise<APIGatewayProxyStructuredResultV2> => {
     const correlationId = resolveCorrelationId(event.headers);
@@ -90,7 +102,7 @@ export const createPrivateApiHandler =
         const idempotencyKey = requireIdempotencyKey(event.headers);
         const request = sendMessageRequestSchema.parse(readJsonBody(event));
         await getTenant.byTenantId(identity.applicationId, request.tenantId);
-        const result = await queueTelegramMessage.execute({
+        const result = await queueMessage.execute({
           applicationId: identity.applicationId,
           correlationId,
           idempotencyKey,
@@ -106,6 +118,20 @@ export const createPrivateApiHandler =
         await getTenant.byTenantId(identity.applicationId, tenantId);
         const request = registerTelegramIntegrationRequestSchema.parse(readJsonBody(event));
         const integration = await registerTelegramIntegration.execute({
+          applicationId: identity.applicationId,
+          request,
+          tenantId,
+        });
+
+        return jsonResponse(201, integration, correlationId);
+      }
+
+      if (event.routeKey === "POST /v1/tenants/{tenantId}/integrations/whatsapp") {
+        requireScope(identity.scope, "integrations:write");
+        const tenantId = tenantIdSchema.parse(event.pathParameters?.tenantId);
+        await getTenant.byTenantId(identity.applicationId, tenantId);
+        const request = registerWhatsappIntegrationRequestSchema.parse(readJsonBody(event));
+        const integration = await registerWhatsappIntegration.execute({
           applicationId: identity.applicationId,
           request,
           tenantId,
@@ -173,8 +199,13 @@ const requireIdempotencyKey = (headers: Record<string, string | undefined>): str
 };
 
 const config = loadPrivateApiRuntimeConfig();
+const sqsClient = new SQSClient({});
 const tenantStore = new DynamoTenantStore(dynamoDocumentClient, config.CONTROL_TABLE);
 const telegramIntegrationStore = new DynamoTelegramIntegrationStore(
+  dynamoDocumentClient,
+  config.CONTROL_TABLE,
+);
+const whatsappIntegrationStore = new DynamoWhatsappIntegrationStore(
   dynamoDocumentClient,
   config.CONTROL_TABLE,
 );
@@ -183,25 +214,61 @@ const outgoingMessageStore = new DynamoOutgoingMessageStore(
   config.CONTROL_TABLE,
   config.DATA_TABLE,
 );
-const credentialVault = new KmsDynamoTelegramCredentialVault(dynamoDocumentClient, kmsClient, {
-  keyArn: config.PROVIDER_CREDENTIALS_KEY_ARN,
-  stage: config.STAGE,
-  tableName: config.CONTROL_TABLE,
-});
+const whatsappOutgoingMessageStore = new DynamoWhatsappOutgoingMessageStore(
+  dynamoDocumentClient,
+  config.CONTROL_TABLE,
+  config.DATA_TABLE,
+);
+const telegramCredentialVault = new KmsDynamoTelegramCredentialVault(
+  dynamoDocumentClient,
+  kmsClient,
+  {
+    keyArn: config.PROVIDER_CREDENTIALS_KEY_ARN,
+    stage: config.STAGE,
+    tableName: config.CONTROL_TABLE,
+  },
+);
+const whatsappCredentialVault = new KmsDynamoWhatsappCredentialVault(
+  dynamoDocumentClient,
+  kmsClient,
+  {
+    keyArn: config.PROVIDER_CREDENTIALS_KEY_ARN,
+    stage: config.STAGE,
+    tableName: config.CONTROL_TABLE,
+  },
+);
+const queueTelegramMessage = new QueueTelegramMessage(
+  outgoingMessageStore,
+  new SqsTelegramOutboundPublisher(sqsClient, config.TELEGRAM_OUTBOUND_QUEUE_URL),
+);
+const queueWhatsappMessage = new QueueWhatsappMessage(
+  whatsappOutgoingMessageStore,
+  new SqsWhatsappOutboundPublisher(sqsClient, config.WHATSAPP_OUTBOUND_QUEUE_URL),
+);
 
 export const main = createPrivateApiHandler({
   ensureTenant: new EnsureTenant(tenantStore),
   getTenant: new GetTenant(tenantStore),
-  queueTelegramMessage: new QueueTelegramMessage(
-    outgoingMessageStore,
-    new SqsTelegramOutboundPublisher(new SQSClient({}), config.TELEGRAM_OUTBOUND_QUEUE_URL),
+  queueMessage: new QueueMessage(
+    new DynamoMessageIntegrationReader(dynamoDocumentClient, config.CONTROL_TABLE),
+    queueTelegramMessage,
+    queueWhatsappMessage,
   ),
   registerTelegramIntegration: new RegisterTelegramIntegration(
     new TelegramBotApiClient(),
-    credentialVault,
+    telegramCredentialVault,
     telegramIntegrationStore,
     {
       webhookBaseUrl: config.TELEGRAM_WEBHOOK_BASE_URL,
+    },
+  ),
+  registerWhatsappIntegration: new RegisterWhatsappIntegration(
+    new WhatsappManagementApiClient(),
+    whatsappCredentialVault,
+    whatsappIntegrationStore,
+    {
+      graphApiVersion: config.WHATSAPP_GRAPH_API_VERSION,
+      webhookBaseUrl: config.WHATSAPP_WEBHOOK_BASE_URL,
     },
   ),
 });

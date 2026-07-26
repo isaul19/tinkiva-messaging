@@ -1,10 +1,10 @@
 Resources:
-  TelegramWebhookLambdaRole:
+  WhatsappWebhookLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: tinkiva-messaging-telegram-webhook-${sls:stage}
+      RoleName: tinkiva-messaging-whatsapp-webhook-${sls:stage}
       Description:
-        Resolves Telegram webhook registrations, verifies their secret, and enqueues updates.
+        Resolves WhatsApp webhook registrations, verifies Meta signatures, and enqueues updates.
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -16,7 +16,7 @@ Resources:
             Action:
               - sts:AssumeRole
       Policies:
-        - PolicyName: receive-telegram-webhooks
+        - PolicyName: receive-whatsapp-webhooks
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -47,13 +47,13 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource:
-                  Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${self:service}-${sls:stage}-telegramWebhook:*
+                  Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${self:service}-${sls:stage}-whatsappWebhook:*
 
-  InboundProcessorLambdaRole:
+  WhatsappSenderLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: tinkiva-messaging-inbound-processor-${sls:stage}
-      Description: Consumes verified provider updates and atomically persists normalized messages.
+      RoleName: tinkiva-messaging-whatsapp-sender-${sls:stage}
+      Description: Sends queued WhatsApp messages using tenant-scoped provider credentials.
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -65,7 +65,7 @@ Resources:
             Action:
               - sts:AssumeRole
       Policies:
-        - PolicyName: process-inbound-messages
+        - PolicyName: send-whatsapp-messages
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -76,61 +76,13 @@ Resources:
                   - sqs:GetQueueAttributes
                 Resource:
                   Fn::GetAtt:
-                    - InboundQueue
+                    - WhatsappOutboundQueue
                     - Arn
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:PutItem
-                  - dynamodb:UpdateItem
                   - dynamodb:TransactWriteItems
-                Resource:
-                  - Fn::GetAtt:
-                      - MessagingControlTable
-                      - Arn
-                  - Fn::GetAtt:
-                      - MessagingDataTable
-                      - Arn
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource:
-                  Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${self:service}-${sls:stage}-inboundProcessor:*
-
-  TelegramSenderLambdaRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: tinkiva-messaging-telegram-sender-${sls:stage}
-      Description: Sends queued Telegram messages using tenant-scoped provider credentials.
-      MaxSessionDuration: 3600
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - lambda.amazonaws.com
-            Action:
-              - sts:AssumeRole
-      Policies:
-        - PolicyName: send-telegram-messages
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:GetQueueAttributes
-                Resource:
-                  Fn::GetAtt:
-                    - TelegramOutboundQueue
-                    - Arn
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
                   - dynamodb:UpdateItem
                 Resource:
                   - Fn::GetAtt:
@@ -152,4 +104,4 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource:
-                  Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${self:service}-${sls:stage}-telegramSender:*
+                  Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${self:service}-${sls:stage}-whatsappSender:*

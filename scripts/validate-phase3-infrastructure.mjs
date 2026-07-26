@@ -64,12 +64,26 @@ for (const action of [
   "sqs:ReceiveMessage",
   "sqs:DeleteMessage",
   "sqs:GetQueueAttributes",
+  "dynamodb:GetItem",
   "dynamodb:PutItem",
   "dynamodb:UpdateItem",
   "dynamodb:TransactWriteItems",
 ]) {
   assert(inboundActions.includes(action), `InboundProcessorLambdaRole must allow ${action}`);
 }
+
+const inboundGetStatement = inboundStatements.find((statement) =>
+  (Array.isArray(statement.Action) ? statement.Action : [statement.Action]).includes(
+    "dynamodb:GetItem",
+  ),
+);
+const inboundGetResources = Array.isArray(inboundGetStatement?.Resource)
+  ? inboundGetStatement.Resource
+  : [inboundGetStatement?.Resource];
+assert(
+  inboundGetResources.some((value) => value?.["Fn::GetAtt"]?.[0] === "MessagingDataTable"),
+  "InboundProcessorLambdaRole must allow GetItem on MessagingDataTable",
+);
 
 for (const statement of inboundStatements) {
   const iamResources = Array.isArray(statement.Resource)
