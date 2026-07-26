@@ -1,6 +1,14 @@
 import { tokenResponseSchema, type TokenResponse } from "../contracts/api/auth.contract.js";
 import { publicErrorResponseSchema } from "../contracts/api/error.contract.js";
 import {
+  completeWhatsappEmbeddedSignupRequestSchema,
+  completeWhatsappEmbeddedSignupResponseSchema,
+  whatsappEmbeddedSignupConfigurationResponseSchema,
+  type CompleteWhatsappEmbeddedSignupRequest,
+  type CompleteWhatsappEmbeddedSignupResponse,
+  type WhatsappEmbeddedSignupConfigurationResponse,
+} from "../contracts/api/whatsapp-embedded-signup.contract.js";
+import {
   sendMessageRequestSchema,
   sendMessageResponseSchema,
   type SendMessageRequest,
@@ -114,6 +122,38 @@ export class MessagingGatewayClient {
         method: "POST",
       },
       (value) => sendMessageResponseSchema.parse(value),
+    );
+  }
+
+  public getWhatsappEmbeddedSignupConfiguration(
+    tenantId: string,
+  ): Promise<WhatsappEmbeddedSignupConfigurationResponse> {
+    const parsedTenantId = tenantIdSchema.parse(tenantId);
+
+    return this.#authorizedRequest(
+      `/v1/tenants/${encodeURIComponent(parsedTenantId)}/integrations/whatsapp/embedded-signup/config`,
+      { method: "GET" },
+      (value) => whatsappEmbeddedSignupConfigurationResponseSchema.parse(value),
+    );
+  }
+
+  public completeWhatsappEmbeddedSignup(
+    tenantId: string,
+    request: CompleteWhatsappEmbeddedSignupRequest,
+  ): Promise<CompleteWhatsappEmbeddedSignupResponse> {
+    const parsedTenantId = tenantIdSchema.parse(tenantId);
+    const parsedRequest = completeWhatsappEmbeddedSignupRequestSchema.parse(request);
+
+    return this.#authorizedRequest(
+      `/v1/tenants/${encodeURIComponent(parsedTenantId)}/integrations/whatsapp/embedded-signup`,
+      {
+        body: JSON.stringify(parsedRequest),
+        headers: {
+          "content-type": "application/json",
+        },
+        method: "POST",
+      },
+      (value) => completeWhatsappEmbeddedSignupResponseSchema.parse(value),
     );
   }
 

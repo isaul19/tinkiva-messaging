@@ -19,6 +19,10 @@ Provider credentials must never be placed in source code, committed `.env` files
 logs, or an MVP database. The registration endpoint accepts them once over HTTPS, encrypts them with
 the stage KMS key, and stores one ciphertext item in the gateway control table.
 
+For normal customer onboarding, prefer [WhatsApp Embedded Signup](./whatsapp-embedded-signup.md). It
+removes manual token/App Secret entry from the customer experience. The manual endpoint below
+remains an operational fallback.
+
 ## 1. Meta prerequisites
 
 Create or identify these values in Meta:
@@ -109,6 +113,7 @@ Successful response:
 
 ```json
 {
+  "credentialVersion": 1,
   "displayName": "Tinkiva customer support",
   "displayPhoneNumber": "+57 300 000 0000",
   "integrationId": "int_...",
@@ -142,7 +147,148 @@ This release therefore reserves each WABA for one gateway integration. Attemptin
 another phone from the same WABA returns `409 PROVIDER_CONFIGURATION_INVALID` instead of overwriting
 the existing callback. Shared WABA connections with multiple phone numbers are a future extension.
 
-## 4. Receive messages dynamically
+## 3A. Register through Embedded Signup
+
+The preferred flow uses these protected endpoints:
+
+```http
+GET  /v1/tenants/{tenantId}/integrations/whatsapp/embedded-signup/config
+POST /v1/tenants/{tenantId}/integrations/whatsapp/embedded-signup
+```
+
+The browser receives only the public App ID, Configuration ID, Graph API version, one-time
+authorization code, and selected asset IDs. The central Tinkiva App Secret and resulting Meta token
+remain server-side and are encrypted with the existing stage KMS key. Full Meta setup, payloads, SDK
+usage, and frontend code are in [whatsapp-embedded-signup.md](./whatsapp-embedded-signup.md).
+
+## 4. Discover a tenant's integration IDs
+
+Required application scope:
+
+```text
+integrations:read
+```
+
+First, when only the Storagia company identifier is known, resolve its tenant:
+
+```http
+GET /v1/tenants/by-external-account/{externalAccountId}
+Authorization: Bearer <application-access-token>
+```
+
+Then list every messaging integration registered for that tenant:
+
+```http
+GET /v1/tenants/{tenantId}/integrations
+Authorization: Bearer <application-access-token>
+```
+
+There is no request body. Example response:
+
+```json
+{
+  "items": [
+    {
+      "createdAt": "2026-07-26T00:48:25.917Z",
+      "credentialVersion": 2,
+      "displayName": "WhatsApp demo - cliente Storagia",
+      "displayPhoneNumber": "+51 904 843 582",
+      "integrationId": "int_01KYDYA1NRED6TQGFXCWX16G32",
+      "phoneNumberId": "1265721213282879",
+      "provider": "WHATSAPP",
+      "providerAccountId": "1265721213282879",
+      "status": "ACTIVE",
+      "tenantId": "tenant_01KYDY9ZD270X27P8WMJ8FGB9X",
+      "updatedAt": "2026-07-26T01:02:35.117Z",
+      "verifiedName": "Tinkiva Software"
+    }
+  ],
+  "tenantId": "tenant_01KYDY9ZD270X27P8WMJ8FGB9X"
+}
+```
+
+Telegram entries use `botId` and optional `botUsername` instead of WhatsApp phone fields. The
+endpoint reads only projected metadata and never returns provider connection IDs, webhook URLs,
+ciphertext, tokens, App Secrets, or verification tokens.
+
+## 5. Rotate the access token manually
+
+Required application scope:
+
+```text
+integrations:write
+```
+
+```http
+PUT /v1/tenants/{tenantId}/integrations/whatsapp/{integrationId}/credentials
+Authorization: Bearer <application-access-token>
+Content-Type: application/json
+```
+
+```json
+{
+  "accessToken": "<new-meta-access-token>",
+  "expectedCredentialVersion": 1
+}
+```
+
+Use the `credentialVersion` returned by registration or by the last successful rotation. The
+existing development integration is currently at version `2`.
+
+Successful response:
+
+```http
+200 OK
+```
+
+```json
+{
+  "credentialVersion": 2,
+  "integrationId": "int_...",
+  "provider": "WHATSAPP",
+  "status": "ACTIVE",
+  "tenantId": "tenant_...",
+  "tokenDataAccessExpiresAt": "2026-10-24T00:43:35.000Z",
+  "tokenExpiresAt": "2026-07-26T02:00:00.000Z",
+  "tokenType": "USER",
+  "updatedAt": "2026-07-26T01:56:50.230Z"
+}
+```
+
+Expiration and token type fields are returned only when Meta provides them. A token with a reported
+expiration remains accepted for rotation, but it should be replaced with a production system-user
+token before that instant.
+
+The operation is deliberately narrow:
+
+1. Resolves the integration under the authenticated application and tenant.
+2. Decrypts the current credential only inside the Lambda to preserve `appSecret` and `verifyToken`.
+3. Uses Meta's token inspection endpoint to require the same Meta App ID and both
+   `whatsapp_business_management` and `whatsapp_business_messaging` permissions.
+4. Confirms the new token can still access the registered WABA and Phone Number ID.
+5. Encrypts a new credential blob with the same KMS encryption context.
+6. Conditionally updates DynamoDB only when `expectedCredentialVersion` matches, then increments the
+   version.
+
+The webhook URL, verification token, WABA, phone number, tenant, integration, conversations, and
+message history are not recreated. Warm Lambdas perform a consistent metadata read and reuse a
+decrypted cache entry only when its version still matches DynamoDB, so they detect rotations
+immediately without decrypting unchanged ciphertext repeatedly.
+
+Relevant failures:
+
+| HTTP | Code                                   | Meaning                                                    |
+| ---- | -------------------------------------- | ---------------------------------------------------------- |
+| 400  | `PROVIDER_CREDENTIAL_INVALID`          | Wrong app, missing permissions, invalid token, WABA/phone. |
+| 404  | `INTEGRATION_NOT_FOUND`                | Integration does not belong to the application/tenant.     |
+| 409  | `INTEGRATION_DISABLED`                 | Integration is not currently `ACTIVE`.                     |
+| 409  | `PROVIDER_CREDENTIAL_VERSION_CONFLICT` | Another rotation already changed the credential version.   |
+| 503  | `PROVIDER_UNAVAILABLE`                 | Meta could not be validated safely; retry later.           |
+
+Never update the DynamoDB ciphertext manually. The KMS encryption context and conditional version
+write are both required.
+
+## 6. Receive messages dynamically
 
 There is no `chat_id` to configure for WhatsApp. Meta sends the sender identity dynamically in every
 webhook:
@@ -172,7 +318,7 @@ FAILED
 
 Duplicate or older status updates do not regress durable message state.
 
-## 5. Send text to an existing conversation
+## 7. Send text to an existing conversation
 
 Required application scope:
 
@@ -206,7 +352,7 @@ This is the preferred reply flow because it uses the identity discovered from a 
 message. When that identity is BSUID-based, the gateway preserves BSUID as the canonical identity
 but uses the verified phone alias from the same webhook as Meta's message delivery destination.
 
-## 6. Send text to a known WhatsApp recipient
+## 8. Send text to a known WhatsApp recipient
 
 By phone:
 
@@ -266,7 +412,7 @@ Accepted response:
 Repeating the same `Idempotency-Key` with the same request returns the original `messageId`. Reusing
 it with another request returns `409 IDEMPOTENCY_KEY_REUSED`.
 
-## 7. Operational boundaries
+## 9. Operational boundaries
 
 - Inbound and outbound text are implemented.
 - Media and template payloads are not implemented yet.
@@ -275,5 +421,5 @@ it with another request returns `409 IDEMPOTENCY_KEY_REUSED`.
 - If Meta rejects a message permanently, the durable state becomes `FAILED`; transient failures
   release the processing lease for SQS retry.
 - The application-event dispatcher and conversation query API remain pending.
-- Credential rotation and shared WABA/multi-number onboarding routes remain pending. Do not
-  overwrite ciphertext items manually because their KMS encryption context is mandatory.
+- Shared WABA/multi-number onboarding remains pending. Manual access-token rotation is available; do
+  not overwrite ciphertext items manually because their KMS encryption context is mandatory.

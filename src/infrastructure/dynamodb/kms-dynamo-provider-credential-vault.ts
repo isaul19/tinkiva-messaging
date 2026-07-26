@@ -1,14 +1,19 @@
+import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { DecryptCommand, EncryptCommand, type KMSClient } from "@aws-sdk/client-kms";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { DeleteCommand, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, GetCommand, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { z } from "zod";
 
+import { ProviderCredentialVersionConflictError } from "../../application/ports/provider-credential-vault-errors.js";
+
 const credentialRecordSchema = z.object({
+  applicationId: z.string().min(1),
   credentialCiphertext: z.string().min(1),
   credentialKeyArn: z.string().min(1),
   credentialVersion: z.number().int().positive(),
   provider: z.enum(["TELEGRAM", "WHATSAPP"]),
   providerConnectionId: z.string().min(1),
+  tenantId: z.string().min(1),
 });
 
 export interface ProviderCredentialVaultConfig<TCredential> {
@@ -27,8 +32,22 @@ export interface CreateProviderCredentialInput<TCredential> {
   tenantId: string;
 }
 
+export interface RotateProviderCredentialInput<
+  TCredential,
+> extends CreateProviderCredentialInput<TCredential> {
+  expectedCredentialVersion: number;
+}
+
+export interface RotateProviderCredentialResult {
+  credentialVersion: number;
+  updatedAt: string;
+}
+
 export class KmsDynamoProviderCredentialVault<TCredential> {
-  readonly #cache = new Map<string, { expiresAt: number; value: TCredential }>();
+  readonly #cache = new Map<
+    string,
+    { credentialVersion: number; expiresAt: number; value: TCredential }
+  >();
   readonly #cacheTtlMs: number;
   readonly #client: DynamoDBDocumentClient;
   readonly #keyArn: string;
@@ -93,12 +112,6 @@ export class KmsDynamoProviderCredentialVault<TCredential> {
   }
 
   public async get(credentialRef: string): Promise<TCredential> {
-    const cached = this.#cache.get(credentialRef);
-
-    if (cached !== undefined && cached.expiresAt > Date.now()) {
-      return cached.value;
-    }
-
     const response = await this.#client.send(
       new GetCommand({
         ConsistentRead: true,
@@ -119,6 +132,16 @@ export class KmsDynamoProviderCredentialVault<TCredential> {
       throw new Error("Provider credential metadata does not match the configured vault.");
     }
 
+    const cached = this.#cache.get(credentialRef);
+
+    if (
+      cached !== undefined &&
+      cached.expiresAt > Date.now() &&
+      cached.credentialVersion === record.credentialVersion
+    ) {
+      return cached.value;
+    }
+
     const decrypted = await this.#kms.send(
       new DecryptCommand({
         CiphertextBlob: Buffer.from(record.credentialCiphertext, "base64"),
@@ -135,11 +158,79 @@ export class KmsDynamoProviderCredentialVault<TCredential> {
       JSON.parse(Buffer.from(decrypted.Plaintext).toString("utf8")) as unknown,
     );
     this.#cache.set(credentialRef, {
+      credentialVersion: record.credentialVersion,
       expiresAt: Date.now() + this.#cacheTtlMs,
       value: credential,
     });
 
     return credential;
+  }
+
+  public async rotate(
+    input: RotateProviderCredentialInput<TCredential>,
+  ): Promise<RotateProviderCredentialResult> {
+    const credentialRef = input.providerConnectionId;
+    const encrypted = await this.#kms.send(
+      new EncryptCommand({
+        EncryptionContext: this.#encryptionContext(credentialRef),
+        KeyId: this.#keyArn,
+        Plaintext: Buffer.from(JSON.stringify(input.credential), "utf8"),
+      }),
+    );
+
+    if (encrypted.CiphertextBlob === undefined || encrypted.KeyId === undefined) {
+      throw new Error("KMS returned no provider credential ciphertext.");
+    }
+
+    const credentialVersion = input.expectedCredentialVersion + 1;
+    const updatedAt = new Date().toISOString();
+
+    try {
+      await this.#client.send(
+        new UpdateCommand({
+          ConditionExpression:
+            "applicationId = :applicationId AND tenantId = :tenantId AND #provider = :provider " +
+            "AND providerConnectionId = :providerConnectionId " +
+            "AND credentialVersion = :expectedCredentialVersion",
+          ExpressionAttributeNames: {
+            "#provider": "provider",
+          },
+          ExpressionAttributeValues: {
+            ":applicationId": input.applicationId,
+            ":credentialCiphertext": Buffer.from(encrypted.CiphertextBlob).toString("base64"),
+            ":credentialKeyArn": encrypted.KeyId,
+            ":credentialVersion": credentialVersion,
+            ":expectedCredentialVersion": input.expectedCredentialVersion,
+            ":provider": this.#provider,
+            ":providerConnectionId": credentialRef,
+            ":tenantId": input.tenantId,
+            ":updatedAt": updatedAt,
+          },
+          Key: {
+            PK: `PROVIDER_CONNECTION#${credentialRef}`,
+            SK: "CREDENTIAL",
+          },
+          TableName: this.#tableName,
+          UpdateExpression:
+            "SET credentialCiphertext = :credentialCiphertext, " +
+            "credentialKeyArn = :credentialKeyArn, credentialVersion = :credentialVersion, " +
+            "updatedAt = :updatedAt",
+        }),
+      );
+    } catch (error) {
+      if (error instanceof ConditionalCheckFailedException) {
+        throw new ProviderCredentialVersionConflictError();
+      }
+
+      throw error;
+    }
+
+    this.#cache.delete(credentialRef);
+
+    return {
+      credentialVersion,
+      updatedAt,
+    };
   }
 
   public async deleteImmediately(credentialRef: string): Promise<void> {

@@ -153,6 +153,11 @@ functions:
           authorizer:
             name: applicationAuthorizer
       - httpApi:
+          path: /v1/tenants/{tenantId}/integrations
+          method: GET
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
           path: /v1/tenants/{tenantId}/integrations/telegram
           method: POST
           authorizer:
@@ -160,6 +165,21 @@ functions:
       - httpApi:
           path: /v1/tenants/{tenantId}/integrations/whatsapp
           method: POST
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/tenants/{tenantId}/integrations/whatsapp/embedded-signup/config
+          method: GET
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/tenants/{tenantId}/integrations/whatsapp/embedded-signup
+          method: POST
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/tenants/{tenantId}/integrations/whatsapp/{integrationId}/credentials
+          method: PUT
           authorizer:
             name: applicationAuthorizer
       - httpApi:

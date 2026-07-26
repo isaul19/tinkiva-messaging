@@ -133,6 +133,7 @@ Resources:
                       - Arn
               - Effect: Allow
                 Action:
+                  - kms:Decrypt
                   - kms:Encrypt
                 Resource:
                   Fn::GetAtt:

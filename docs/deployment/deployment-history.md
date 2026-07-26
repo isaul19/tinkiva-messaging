@@ -1,5 +1,115 @@
 # Deployment history
 
+## 2026-07-26 — WhatsApp Embedded Signup platform activation
+
+- Operator: Codex using AWS user `saul`.
+- Stage: `dev`; region: `us-east-1`; account: `160358212333`.
+- Meta App ID: `1393451145991555`.
+- Meta Facebook Login for Business Configuration ID: `1563719192007796`.
+- Configuration version: `1`.
+- Updated at: `2026-07-26T04:57:22.681Z`.
+
+The repository administrative CLI decrypted the App Secret from provider connection
+`pc_01KYDYA1NRJ6RX68XFZ63YFRFV` only in process memory, then KMS encrypted it with the platform
+Embedded Signup encryption context and wrote:
+
+```text
+PK=PLATFORM#WHATSAPP
+SK=EMBEDDED_SIGNUP
+```
+
+No plaintext secret was printed, logged, committed, or returned. No CloudFormation resource, Secrets
+Manager secret, table, or KMS key was created.
+
+Authenticated verification returned `200` with `configured=true`, the expected public IDs, and Graph
+API `v25.0`. Live customer onboarding remains pending implementation of the Storagia frontend
+button/BFF flow.
+
+## 2026-07-25 — WhatsApp Embedded Signup v4 backend
+
+- Operator: Codex using AWS user `saul`.
+- Stage: `dev`; region: `us-east-1`; account: `160358212333`.
+- Stack: `tinkiva-messaging-gateway-dev`.
+- Final status: `UPDATE_COMPLETE`.
+- AWS update time: `2026-07-26T03:25:12.904000+00:00`.
+
+### Added
+
+- Protected browser-safe Embedded Signup configuration endpoint.
+- Protected one-time authorization-code completion endpoint.
+- Central Meta App Secret ciphertext at `PLATFORM#WHATSAPP / EMBEDDED_SIGNUP` in the existing
+  control table and KMS key.
+- Administrative CLI that copies the App Secret from an existing encrypted provider connection
+  without printing it.
+- Meta code exchange, app/scope validation, and reuse of the existing isolated WABA onboarding.
+- Typed SDK methods and a Storagia BFF/frontend guide for Embedded Signup v4.
+- No new AWS resource, table, key, Secrets Manager secret, Lambda, or IAM permission.
+
+### Verification
+
+- `pnpm verify`: 48 files and 114 tests passed.
+- Coverage: 95.06% statements, 83.14% branches, 98.34% functions, 95.19% lines.
+- `pnpm package`: 9 Lambdas, 15 API routes, 9 IAM roles, and all validators passed.
+- Authenticated configuration request returned `200`, `configured=false`, and Graph API `v25.0`.
+- Authenticated completion negative smoke returned `409 PROVIDER_CONFIGURATION_INVALID` before Meta
+  access or persistence, as expected until the Meta Configuration ID is supplied.
+
+The backend deployment initially remained unconfigured; the following activation entry records the
+later Configuration ID setup. A live browser onboarding is still pending.
+
+## 2026-07-25 — Tenant integration discovery endpoint
+
+- Operator: Codex using AWS user `saul`.
+- Stage: `dev`; region: `us-east-1`; account: `160358212333`.
+- Stack: `tinkiva-messaging-gateway-dev`.
+- Final status: `UPDATE_COMPLETE`.
+- AWS update time: `2026-07-26T02:33:25.523000+00:00`.
+
+### Added
+
+- Protected `GET /v1/tenants/{tenantId}/integrations` with `integrations:read`.
+- Tenant/application ownership checks on integration and credential metadata.
+- Provider-specific Telegram/WhatsApp metadata plus current `credentialVersion`.
+- DynamoDB projection expressions that exclude ciphertext and webhook/provider secrets.
+- No new AWS resource or IAM permission.
+
+### Verification
+
+- `pnpm verify`: 44 files and 104 tests passed.
+- Coverage: 94.78% statements, 82.87% branches, 98.21% functions, 94.92% lines.
+- `pnpm package`: 9 Lambdas, 13 API routes, 9 IAM roles, and all validators passed.
+- Live JWT-authenticated request returned `200` and the active demo WhatsApp integration at
+  credential version `2`.
+
+## 2026-07-25 — Manual WhatsApp access-token rotation
+
+- Operator: Codex using AWS user `saul`.
+- Stage: `dev`; region: `us-east-1`; account: `160358212333`.
+- Stack: `tinkiva-messaging-gateway-dev`.
+- Final status: `UPDATE_COMPLETE`.
+- AWS update time: `2026-07-26T02:02:06.549000+00:00`.
+- Deployment command: the documented phase 4 Serverless command with the same alarm email, public
+  base URL, and Graph API version parameters.
+
+### Added
+
+- Protected `PUT /v1/tenants/{tenantId}/integrations/whatsapp/{integrationId}/credentials`.
+- Meta token ownership, permission, WABA, and phone-number validation before persistence.
+- KMS re-encryption with optimistic DynamoDB credential-version concurrency.
+- Immediate version detection for warm Lambda credential caches.
+- `kms:Decrypt` on the exact provider key for the private API role; no wildcard resources and no new
+  AWS resource.
+
+### Verification
+
+- `pnpm verify`: 42 files, 101 tests; coverage 95.59% statements, 82.87% branches, 98.18% functions,
+  and 95.74% lines.
+- `pnpm package`: 9 Lambdas, 12 API routes, 9 IAM roles, and all infrastructure validators passed.
+- Live authenticated rotation returned `200`, advanced the demo credential from version `1` to `2`,
+  and preserved integration status `ACTIVE`.
+- A consistent DynamoDB read confirmed version `2` and update time `2026-07-26T01:56:50.230Z`.
+- No provider plaintext was written to source, logs, command output, or documentation.
+
 ## 2026-07-25 — Phase 4 WhatsApp Cloud API
 
 - Operator: Codex using AWS user `saul`.

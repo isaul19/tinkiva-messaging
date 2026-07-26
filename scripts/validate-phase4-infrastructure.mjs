@@ -94,9 +94,13 @@ const routeKeys = Object.values(resources)
   .map((value) => value.Properties?.RouteKey);
 
 for (const routeKey of [
+  "GET /v1/tenants/{tenantId}/integrations",
   "GET /webhooks/whatsapp/{webhookKey}",
   "POST /webhooks/whatsapp/{webhookKey}",
   "POST /v1/tenants/{tenantId}/integrations/whatsapp",
+  "GET /v1/tenants/{tenantId}/integrations/whatsapp/embedded-signup/config",
+  "POST /v1/tenants/{tenantId}/integrations/whatsapp/embedded-signup",
+  "PUT /v1/tenants/{tenantId}/integrations/whatsapp/{integrationId}/credentials",
 ]) {
   assert(routeKeys.includes(routeKey), `Missing WhatsApp route: ${routeKey}`);
 }
@@ -105,6 +109,12 @@ const privateRole = resource("PrivateApiLambdaRole", "AWS::IAM::Role");
 const privateStatements = privateRole.Properties.Policies.flatMap(
   (policy) => policy.PolicyDocument.Statement,
 );
+const privateActions = privateStatements.flatMap((statement) =>
+  Array.isArray(statement.Action) ? statement.Action : [statement.Action],
+);
+for (const action of ["dynamodb:GetItem", "dynamodb:UpdateItem", "kms:Decrypt", "kms:Encrypt"]) {
+  assert(privateActions.includes(action), `PrivateApiLambdaRole must allow ${action}`);
+}
 const outboundStatement = privateStatements.find((statement) =>
   (Array.isArray(statement.Action) ? statement.Action : [statement.Action]).includes(
     "sqs:SendMessage",

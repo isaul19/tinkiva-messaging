@@ -16,8 +16,30 @@ export const registerWhatsappIntegrationRequestSchema = z
   })
   .strict();
 
+export const rotateWhatsappCredentialRequestSchema = z
+  .object({
+    accessToken: z.string().trim().min(20).max(4_096),
+    expectedCredentialVersion: z.number().int().positive(),
+  })
+  .strict();
+
+export const rotateWhatsappCredentialResponseSchema = z
+  .object({
+    credentialVersion: z.number().int().positive(),
+    integrationId: integrationIdSchema,
+    provider: z.literal("WHATSAPP"),
+    status: z.literal("ACTIVE"),
+    tenantId: tenantIdSchema,
+    tokenDataAccessExpiresAt: z.iso.datetime().optional(),
+    tokenExpiresAt: z.iso.datetime().optional(),
+    tokenType: z.string().min(1).optional(),
+    updatedAt: z.iso.datetime(),
+  })
+  .strict();
+
 export const whatsappIntegrationResponseSchema = z
   .object({
+    credentialVersion: z.number().int().positive(),
     displayName: z.string().min(1),
     displayPhoneNumber: z.string().min(1).optional(),
     integrationId: integrationIdSchema,
@@ -30,6 +52,10 @@ export const whatsappIntegrationResponseSchema = z
   })
   .strict();
 
+export type RotateWhatsappCredentialRequest = z.infer<typeof rotateWhatsappCredentialRequestSchema>;
+export type RotateWhatsappCredentialResponse = z.infer<
+  typeof rotateWhatsappCredentialResponseSchema
+>;
 export type RegisterWhatsappIntegrationRequest = z.infer<
   typeof registerWhatsappIntegrationRequestSchema
 >;

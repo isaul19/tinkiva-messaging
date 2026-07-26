@@ -23,14 +23,14 @@ export interface RegisterWhatsappIntegrationConfig {
 }
 
 export class RegisterWhatsappIntegration {
-  readonly #credentials: WhatsappCredentialWriter;
-  readonly #managementApi: WhatsappManagementApi;
+  readonly #credentials: Pick<WhatsappCredentialWriter, "create" | "deleteImmediately">;
+  readonly #managementApi: Pick<WhatsappManagementApi, "getPhoneNumbers" | "subscribeWaba">;
   readonly #store: WhatsappIntegrationStore;
   readonly #config: RegisterWhatsappIntegrationConfig;
 
   public constructor(
-    managementApi: WhatsappManagementApi,
-    credentials: WhatsappCredentialWriter,
+    managementApi: Pick<WhatsappManagementApi, "getPhoneNumbers" | "subscribeWaba">,
+    credentials: Pick<WhatsappCredentialWriter, "create" | "deleteImmediately">,
     store: WhatsappIntegrationStore,
     config: RegisterWhatsappIntegrationConfig,
   ) {
@@ -138,6 +138,7 @@ export class RegisterWhatsappIntegration {
     }
 
     return {
+      credentialVersion: 1,
       displayName: command.request.displayName,
       ...(phoneNumber.displayPhoneNumber === undefined
         ? {}

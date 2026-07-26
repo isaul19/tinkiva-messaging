@@ -9,7 +9,7 @@
 - CloudFormation stack: `tinkiva-messaging-gateway-dev`
 - API base URL: `https://2myga1gnfl.execute-api.us-east-1.amazonaws.com`
 - Final stack status: `UPDATE_COMPLETE`
-- Last update reported by AWS: `2026-07-26T01:22:42.639000+00:00`
+- Last update reported by AWS: `2026-07-26T03:25:12.904000+00:00`
 - Graph API version: `v25.0`
 
 ## Reproducible commands
@@ -49,21 +49,30 @@ Serverless-managed stack. No application resource was created manually in the AW
 ### HTTP routes
 
 ```text
+GET  /v1/tenants/{tenantId}/integrations
 POST /v1/tenants/{tenantId}/integrations/whatsapp
+GET  /v1/tenants/{tenantId}/integrations/whatsapp/embedded-signup/config
+POST /v1/tenants/{tenantId}/integrations/whatsapp/embedded-signup
+PUT  /v1/tenants/{tenantId}/integrations/whatsapp/{integrationId}/credentials
 GET  /webhooks/whatsapp/{webhookKey}
 POST /webhooks/whatsapp/{webhookKey}
 POST /v1/messages
 ```
 
-The onboarding and message routes use the existing JWT authorizer. The webhook routes are public
-provider endpoints protected by an opaque URL key plus Meta verification token or raw-body
-HMAC-SHA256 signature, depending on the HTTP method.
+The onboarding, credential-rotation, and message routes use the existing JWT authorizer. The webhook
+routes are public provider endpoints protected by an opaque URL key plus Meta verification token or
+raw-body HMAC-SHA256 signature, depending on the HTTP method.
 
 ### Lambdas
 
 - `tinkiva-messaging-gateway-dev-privateApi`
   - Validates WABA and Phone Number ID using Graph API.
   - Encrypts credentials through KMS and stores only ciphertext in DynamoDB.
+  - Exposes browser-safe Embedded Signup configuration and exchanges one-time Meta codes.
+  - Validates the Embedded Signup token's app/scopes before reusing the normal isolated onboarding
+    transaction.
+  - Rotates access tokens conditionally by credential version after checking the same Meta app,
+    required scopes, WABA, and phone number.
   - Performs the base WABA subscription, applies its tenant callback override, and exposes the
     existing provider-neutral message endpoint.
 - `tinkiva-messaging-gateway-dev-whatsappWebhook`
@@ -89,9 +98,10 @@ tinkiva-messaging-whatsapp-webhook-dev
 tinkiva-messaging-whatsapp-sender-dev
 ```
 
-The private API role was extended only with permission to send to the existing WhatsApp outbound
-queue. Runtime provider roles have no Secrets Manager access and no phase 4 policy uses
-`Resource: "*"`.
+The private API role can send to the existing WhatsApp outbound queue and can encrypt/decrypt only
+with the exact provider-credential KMS key. Decrypt is required during rotation to preserve the
+existing App Secret and generated verification token while replacing only the access token. Runtime
+provider roles have no Secrets Manager access and no phase 4 policy uses `Resource: "*"`.
 
 The webhook role can:
 
@@ -131,30 +141,62 @@ The item contains KMS ciphertext for:
 ```
 
 The KMS encryption context binds the ciphertext to provider `WHATSAPP`, connection ID, stage, and
-control table. Provider connection, integration, tenant, WABA, phone-number, and webhook reference
-records contain routing metadata but no provider secrets.
+control table. Credential items start at `credentialVersion=1`. Rotation uses a conditional
+`UpdateItem` against the expected application, tenant, provider connection, provider, and version,
+then writes a newly encrypted blob and increments the version. Runtime readers perform a consistent
+version check before reusing decrypted in-memory credentials. Provider connection, integration,
+tenant, WABA, phone-number, and webhook reference records contain routing metadata but no provider
+secrets.
 
 A conditional `WHATSAPP_WABA#{wabaId}` reference prevents a second onboarding from overwriting the
 WABA-level callback. Shared WABA connections with multiple numbers require a future onboarding
 extension.
 
+Embedded Signup adds one platform configuration item to the same table:
+
+```text
+PK=PLATFORM#WHATSAPP
+SK=EMBEDDED_SIGNUP
+```
+
+It stores the public Meta App/Configuration IDs and a KMS ciphertext for Tinkiva's central App
+Secret. The public GET endpoint never decrypts it. No new table, KMS key, or Secrets Manager secret
+was created.
+
 ## Verification performed
 
-- `pnpm verify`: 38 test files and 90 tests passed.
+- `pnpm verify`: 48 test files and 114 tests passed.
 - Coverage:
-  - statements: 95.54%;
-  - branches: 82.84%;
-  - functions: 98.09%;
-  - lines: 95.71%.
+  - statements: 95.06%;
+  - branches: 83.14%;
+  - functions: 98.34%;
+  - lines: 95.19%.
 - `pnpm package`:
   - 9 Lambda functions;
-  - 11 API routes;
+  - 15 API routes;
   - 9 IAM roles;
   - 3 SQS event-source mappings;
   - all phase 1-4 infrastructure validators passed.
 - CloudFormation: `UPDATE_COMPLETE`.
 - All 15 CloudFormation resources whose logical IDs contain `Whatsapp` reported `CREATE_COMPLETE`,
   including routes, roles, Lambdas, event source, queue, DLQ, and alarm.
+- Authenticated Embedded Signup negative smoke:
+  - token endpoint returned `200`;
+  - public configuration returned `200` with `configured=false` and Graph API `v25.0`;
+  - completion returned `409 PROVIDER_CONFIGURATION_INVALID` before calling Meta or persisting any
+    tenant integration because the central Meta Configuration ID is intentionally pending.
+- Embedded Signup platform activation:
+  - the administrative CLI copied the existing App Secret only in process memory;
+  - KMS wrote configuration version `1` at `2026-07-26T04:57:22.681Z`;
+  - the platform item uses `PK=PLATFORM#WHATSAPP, SK=EMBEDDED_SIGNUP`;
+  - authenticated configuration returned `200`, `configured=true`, App ID `1393451145991555`,
+    Configuration ID `1563719192007796`, and Graph API `v25.0`;
+  - no new AWS resource or Secrets Manager secret was created.
+- Authenticated integration-list smoke:
+  - token endpoint returned `200`;
+  - `GET /v1/tenants/{tenantId}/integrations` returned `200`;
+  - the demo WhatsApp integration returned `ACTIVE` at credential version `3`;
+  - no provider secret or internal provider connection ID was returned.
 - Public webhook negative smoke:
   - GET with an unknown opaque webhook key returned `404`.
 - Authenticated onboarding negative smoke:
@@ -176,6 +218,13 @@ integrationId=int_01KYDYA1NRED6TQGFXCWX16G32
 providerConnectionId=pc_01KYDYA1NRJ6RX68XFZ63YFRFV
 status=ACTIVE
 ```
+
+A live manual rotation used the already encrypted token as both old and replacement value so the
+effective provider credential did not change. Authentication returned `200`; the rotation returned
+`200`; DynamoDB advanced `credentialVersion` through manual rotations and is currently at `3`; and
+the integration remained `ACTIVE`. Meta classified the test token as `USER` and reported expiration
+at `2026-07-26T04:00:00Z`, demonstrating why it must be replaced with a production system-user
+token.
 
 The access token, App Secret, generated verification token, and opaque webhook key are intentionally
 omitted. They remain only as KMS ciphertext in DynamoDB. Verification completed:

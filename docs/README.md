@@ -8,6 +8,8 @@ This directory records how the gateway is designed, created, deployed, and opera
 - `architecture/`: accepted architecture decisions.
 - `deployment/`: reproducible infrastructure and deployment records.
 - `guides/`: provider endpoints, payloads, SDK usage, and operational boundaries.
+  - [WhatsApp API](./guides/whatsapp-api.md)
+  - [WhatsApp Embedded Signup](./guides/whatsapp-embedded-signup.md)
 - `runbooks/`: operational procedures.
 - `implementation-status.md`: implementation progress against the specification.
 

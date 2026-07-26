@@ -3,6 +3,8 @@ import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 
 import type {
   CreateWhatsappCredentialInput,
+  RotateWhatsappCredentialInput,
+  RotateWhatsappCredentialResult,
   WhatsappCredentialVault,
 } from "../../application/ports/whatsapp-credential-vault.js";
 import {
@@ -42,6 +44,20 @@ export class KmsDynamoWhatsappCredentialVault implements WhatsappCredentialVault
 
   public get(credentialRef: string): Promise<WhatsappCredential> {
     return this.#vault.get(credentialRef);
+  }
+
+  public rotate(input: RotateWhatsappCredentialInput): Promise<RotateWhatsappCredentialResult> {
+    return this.#vault.rotate({
+      applicationId: input.applicationId,
+      credential: {
+        accessToken: input.accessToken,
+        appSecret: input.appSecret,
+        verifyToken: input.verifyToken,
+      },
+      expectedCredentialVersion: input.expectedCredentialVersion,
+      providerConnectionId: input.providerConnectionId,
+      tenantId: input.tenantId,
+    });
   }
 
   public deleteImmediately(credentialRef: string): Promise<void> {

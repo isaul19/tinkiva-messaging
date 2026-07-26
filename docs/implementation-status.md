@@ -81,11 +81,23 @@
 - [x] Provider-neutral `POST /v1/messages` dispatch to the WhatsApp outbound FIFO queue.
 - [x] WhatsApp sender Lambda with durable processing lease and retry behavior.
 - [x] WABA-level uniqueness guard to prevent callback overwrite.
+- [x] Tenant-scoped integration discovery with current credential versions and no secret fields.
+- [x] Manual, versioned WhatsApp access-token rotation with Meta app/scope/WABA/phone validation.
+- [x] WhatsApp Embedded Signup v4 configuration and one-time authorization-code exchange.
+- [x] Central Tinkiva Meta App Secret ciphertext in the existing DynamoDB/KMS control plane.
+- [x] Browser-safe configuration and tenant onboarding endpoints.
+- [x] Typed SDK methods and frontend/BFF integration guide.
+- [x] Immediate credential-version detection across warm Lambda caches.
 - [x] Dedicated least-privilege IAM roles and phase 4 packaged-template validator.
 - [x] Deployed AWS stack, public webhook negative smoke, and authenticated onboarding negative
       smoke.
 - [x] Endpoint, payload, credential-storage, deployment, and rollback documentation.
 - [x] Complete live Meta app/WABA onboarding and activate the isolated tenant callback.
 - [x] Complete a real inbound message and outbound reply through `DELIVERED`.
+- [x] Create the Meta Facebook Login for Business configuration and activate Configuration ID
+      `1563719192007796` in the deployed gateway.
+- [ ] Complete a live Embedded Signup onboarding from the Storagia HTTPS portal.
+- [ ] Complete Meta Business Verification, App Review, Tech Provider onboarding, and Advanced Access
+      before onboarding unrelated production customers.
 - [ ] Add approved template and media sending.
 - [ ] Support one shared WABA provider connection with multiple phone-number integrations.

@@ -11,6 +11,7 @@
     "pnpm": ">=11 <12"
   },
   "scripts": {
+    "admin:configure-whatsapp-embedded-signup": "tsx src/cli/configure-whatsapp-embedded-signup.ts",
     "admin:create-application": "tsx src/cli/create-application.ts",
     "build": "tsc --project tsconfig.build.json",
     "format": "prettier --write .",
