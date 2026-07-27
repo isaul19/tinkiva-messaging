@@ -1,5 +1,17 @@
 import { tokenResponseSchema, type TokenResponse } from "../contracts/api/auth.contract.js";
+import {
+  conversationListQuerySchema,
+  conversationMessageListQuerySchema,
+  listConversationMessagesResponseSchema,
+  listConversationsResponseSchema,
+  type ListConversationMessagesResponse,
+  type ListConversationsResponse,
+} from "../contracts/api/conversation.contract.js";
 import { publicErrorResponseSchema } from "../contracts/api/error.contract.js";
+import {
+  realtimeTicketResponseSchema,
+  type RealtimeTicketResponse,
+} from "../contracts/api/realtime.contract.js";
 import {
   completeWhatsappEmbeddedSignupRequestSchema,
   completeWhatsappEmbeddedSignupResponseSchema,
@@ -20,7 +32,7 @@ import {
   type EnsureTenantRequest,
   type EnsureTenantResponse,
 } from "../contracts/api/tenant.contract.js";
-import { tenantIdSchema } from "../contracts/shared/identifiers.js";
+import { conversationIdSchema, tenantIdSchema } from "../contracts/shared/identifiers.js";
 
 export interface MessagingGatewayClientConfig {
   clientId: string;
@@ -36,6 +48,17 @@ export interface EnsureTenantOptions {
 
 export interface SendMessageOptions {
   idempotencyKey: string;
+}
+
+export interface ListConversationsOptions {
+  cursor?: string;
+  integrationId: string;
+  limit?: number;
+}
+
+export interface ListConversationMessagesOptions {
+  cursor?: string;
+  limit?: number;
 }
 
 export class MessagingGatewayApiError extends Error {
@@ -122,6 +145,55 @@ export class MessagingGatewayClient {
         method: "POST",
       },
       (value) => sendMessageResponseSchema.parse(value),
+    );
+  }
+
+  public listConversations(
+    tenantId: string,
+    options: ListConversationsOptions,
+  ): Promise<ListConversationsResponse> {
+    const parsedTenantId = tenantIdSchema.parse(tenantId);
+    const query = conversationListQuerySchema.parse(options);
+    const searchParams = new URLSearchParams({
+      integrationId: query.integrationId,
+      limit: String(query.limit),
+    });
+    if (query.cursor !== undefined) searchParams.set("cursor", query.cursor);
+
+    return this.#authorizedRequest(
+      `/v1/tenants/${encodeURIComponent(parsedTenantId)}/conversations?${searchParams.toString()}`,
+      { method: "GET" },
+      (value) => listConversationsResponseSchema.parse(value),
+    );
+  }
+
+  public listConversationMessages(
+    tenantId: string,
+    conversationId: string,
+    options: ListConversationMessagesOptions = {},
+  ): Promise<ListConversationMessagesResponse> {
+    const parsedTenantId = tenantIdSchema.parse(tenantId);
+    const parsedConversationId = conversationIdSchema.parse(conversationId);
+    const query = conversationMessageListQuerySchema.parse(options);
+    const searchParams = new URLSearchParams({ limit: String(query.limit) });
+    if (query.cursor !== undefined) searchParams.set("cursor", query.cursor);
+
+    return this.#authorizedRequest(
+      `/v1/tenants/${encodeURIComponent(parsedTenantId)}/conversations/${encodeURIComponent(parsedConversationId)}/messages?${searchParams.toString()}`,
+      { method: "GET" },
+      (value) => listConversationMessagesResponseSchema.parse(value),
+    );
+  }
+
+  public createRealtimeTicket(tenantId: string): Promise<RealtimeTicketResponse> {
+    const parsedTenantId = tenantIdSchema.parse(tenantId);
+
+    return this.#authorizedRequest(
+      `/v1/tenants/${encodeURIComponent(parsedTenantId)}/realtime/tickets`,
+      {
+        method: "POST",
+      },
+      (value) => realtimeTicketResponseSchema.parse(value),
     );
   }
 

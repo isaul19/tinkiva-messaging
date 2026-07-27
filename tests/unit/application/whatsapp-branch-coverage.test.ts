@@ -90,6 +90,7 @@ describe("WhatsApp optional and terminal branches", () => {
     };
     const store = {
       createPending: vi.fn().mockRejectedValue(new Error("duplicate WABA")),
+      deletePending: vi.fn(),
       setStatus: vi.fn(),
     };
     const useCase = new RegisterWhatsappIntegration(managementApi, credentials, store, {

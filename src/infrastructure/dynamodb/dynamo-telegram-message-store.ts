@@ -4,6 +4,8 @@ import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 
+import { buildConversationIndexKeys } from "./conversation-index.js";
+
 import type {
   PersistTelegramTextMessage,
   TelegramMessageStore,
@@ -25,6 +27,13 @@ export class DynamoTelegramMessageStore implements TelegramMessageStore {
   ): Promise<"CREATED" | "DUPLICATE"> {
     const identityId = deterministicIdentityId(input.integrationId, input.chatId);
     const messageSortKey = `MESSAGE#${input.occurredAt}#${input.messageId}`;
+    const conversationIndex = buildConversationIndexKeys({
+      applicationId: input.applicationId,
+      conversationId: input.conversationId,
+      integrationId: input.integrationId,
+      lastMessageAt: input.occurredAt,
+      tenantId: input.tenantId,
+    });
     const providerMessageHash = sha256(input.providerMessageId);
 
     try {
@@ -91,9 +100,12 @@ export class DynamoTelegramMessageStore implements TelegramMessageStore {
                   "#status": "status",
                 },
                 ExpressionAttributeValues: {
+                  ":applicationId": input.applicationId,
                   ":conversationId": input.conversationId,
                   ":createdAt": input.occurredAt,
                   ":entityType": "CONVERSATION",
+                  ":gsi1pk": conversationIndex.GSI1PK,
+                  ":gsi1sk": conversationIndex.GSI1SK,
                   ":identityId": identityId,
                   ":integrationId": input.integrationId,
                   ":lastMessageAt": input.occurredAt,
@@ -106,7 +118,8 @@ export class DynamoTelegramMessageStore implements TelegramMessageStore {
                 },
                 TableName: this.#controlTable,
                 UpdateExpression:
-                  "SET entityType = :entityType, conversationId = :conversationId, " +
+                  "SET applicationId = :applicationId, entityType = :entityType, " +
+                  "GSI1PK = :gsi1pk, GSI1SK = :gsi1sk, conversationId = :conversationId, " +
                   "tenantId = :tenantId, integrationId = :integrationId, " +
                   "identityId = :identityId, createdAt = if_not_exists(createdAt, :createdAt), " +
                   "lastMessageAt = :lastMessageAt, #status = :status",

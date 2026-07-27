@@ -46,3 +46,38 @@ const tenant = await messaging.ensureTenant(
 
 Only backend services may use the application client secret. A consuming AWS workload should receive
 `secretsmanager:GetSecretValue` only for its own credentials secret.
+
+## Conversation inbox
+
+The SDK exposes the same paginated, tenant-isolated inbox used by Storagia:
+
+```ts
+const conversations = await messaging.listConversations(tenant.tenantId, {
+  integrationId: "int_...",
+  limit: 25,
+});
+
+const first = conversations.items[0];
+if (first) {
+  const messages = await messaging.listConversationMessages(tenant.tenantId, first.conversationId, {
+    limit: 50,
+  });
+
+  await messaging.sendMessage(
+    {
+      tenantId: tenant.tenantId,
+      integrationId: first.integrationId,
+      conversationId: first.conversationId,
+      content: {
+        type: "TEXT",
+        text: { body: "Gracias por escribirnos." },
+      },
+    },
+    { idempotencyKey: `reply:${crypto.randomUUID()}` },
+  );
+}
+```
+
+Pass `nextCursor` back as `cursor` without decoding or modifying it. Backend services should cache
+the application JWT through the SDK instance and must never forward the application client secret to
+a browser.

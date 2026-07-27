@@ -17,8 +17,18 @@ export interface CreateWhatsappIntegrationRecords {
   webhookUrl: string;
 }
 
+export interface DeletePendingWhatsappIntegrationRecords {
+  integrationId: string;
+  phoneNumberId: string;
+  providerConnectionId: string;
+  tenantId: string;
+  wabaId: string;
+  webhookKey: string;
+}
+
 export interface WhatsappIntegrationStore {
   createPending(input: CreateWhatsappIntegrationRecords): Promise<void>;
+  deletePending(input: DeletePendingWhatsappIntegrationRecords): Promise<void>;
   setStatus(
     integrationId: string,
     phoneNumberId: string,

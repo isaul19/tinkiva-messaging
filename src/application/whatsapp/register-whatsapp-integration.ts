@@ -124,16 +124,32 @@ export class RegisterWhatsappIntegration {
         new Date().toISOString(),
       );
     } catch (error) {
-      await this.#store.setStatus(
-        integrationId,
-        command.request.phoneNumberId,
-        providerConnectionId,
-        command.tenantId,
-        command.request.wabaId,
-        webhookKey,
-        "ERROR",
-        new Date().toISOString(),
-      );
+      try {
+        await this.#store.deletePending({
+          integrationId,
+          phoneNumberId: command.request.phoneNumberId,
+          providerConnectionId,
+          tenantId: command.tenantId,
+          wabaId: command.request.wabaId,
+          webhookKey,
+        });
+      } catch {
+        await this.#store
+          .setStatus(
+            integrationId,
+            command.request.phoneNumberId,
+            providerConnectionId,
+            command.tenantId,
+            command.request.wabaId,
+            webhookKey,
+            "ERROR",
+            new Date().toISOString(),
+          )
+          .catch(() => undefined);
+        throw error;
+      }
+
+      await this.#credentials.deleteImmediately(credentialRef).catch(() => undefined);
       throw error;
     }
 

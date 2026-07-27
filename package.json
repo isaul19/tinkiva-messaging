@@ -11,12 +11,13 @@
     "pnpm": ">=11 <12"
   },
   "scripts": {
+    "admin:backfill-conversation-index": "tsx src/cli/backfill-conversation-index.ts",
     "admin:configure-whatsapp-embedded-signup": "tsx src/cli/configure-whatsapp-embedded-signup.ts",
     "admin:create-application": "tsx src/cli/create-application.ts",
     "build": "tsc --project tsconfig.build.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "infra:validate": "node scripts/validate-packaged-infrastructure.mjs && node scripts/validate-cloudformation-shape.mjs && node scripts/validate-phase2-infrastructure.mjs && node scripts/validate-phase3-infrastructure.mjs && node scripts/validate-phase4-infrastructure.mjs",
+    "infra:validate": "node scripts/validate-packaged-infrastructure.mjs && node scripts/validate-cloudformation-shape.mjs && node scripts/validate-phase2-infrastructure.mjs && node scripts/validate-phase3-infrastructure.mjs && node scripts/validate-phase4-infrastructure.mjs && node scripts/validate-realtime-infrastructure.mjs",
     "lint": "eslint .",
     "package": "serverless package --stage dev && pnpm infra:validate",
     "test": "vitest run",
@@ -27,11 +28,13 @@
   },
   "dependencies": {
     "@aws-lambda-powertools/logger": "2.34.0",
+    "@aws-sdk/client-apigatewaymanagementapi": "3.1095.0",
     "@aws-sdk/client-dynamodb": "3.1095.0",
     "@aws-sdk/client-kms": "3.1095.0",
     "@aws-sdk/client-secrets-manager": "3.1095.0",
     "@aws-sdk/client-sqs": "3.1095.0",
     "@aws-sdk/lib-dynamodb": "3.1095.0",
+    "@aws-sdk/util-dynamodb": "3.996.7",
     "jose": "6.2.4",
     "ulid": "3.0.2",
     "zod": "4.4.3"

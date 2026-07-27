@@ -3,10 +3,13 @@ import { SQSClient } from "@aws-sdk/client-sqs";
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { z } from "zod";
 
+import { ListConversationMessages } from "../../application/conversations/list-conversation-messages.js";
+import { ListConversations } from "../../application/conversations/list-conversations.js";
 import { ListTenantIntegrations } from "../../application/integrations/list-tenant-integrations.js";
 import { QueueMessage } from "../../application/messages/queue-message.js";
 import { QueueTelegramMessage } from "../../application/messages/queue-telegram-message.js";
 import { QueueWhatsappMessage } from "../../application/messages/queue-whatsapp-message.js";
+import { CreateRealtimeTicket } from "../../application/realtime/create-realtime-ticket.js";
 import { RegisterTelegramIntegration } from "../../application/telegram/register-telegram-integration.js";
 import { EnsureTenant } from "../../application/tenants/ensure-tenant.js";
 import { GetTenant } from "../../application/tenants/get-tenant.js";
@@ -15,6 +18,10 @@ import { GetWhatsappEmbeddedSignupConfiguration } from "../../application/whatsa
 import { RegisterWhatsappIntegration } from "../../application/whatsapp/register-whatsapp-integration.js";
 import { RotateWhatsappAccessToken } from "../../application/whatsapp/rotate-whatsapp-access-token.js";
 import type { ApplicationScope } from "../../contracts/api/auth.contract.js";
+import {
+  conversationListQuerySchema,
+  conversationMessageListQuerySchema,
+} from "../../contracts/api/conversation.contract.js";
 import { registerTelegramIntegrationRequestSchema } from "../../contracts/api/integration.contract.js";
 import { sendMessageRequestSchema } from "../../contracts/api/message.contract.js";
 import { ensureTenantRequestSchema } from "../../contracts/api/tenant.contract.js";
@@ -23,10 +30,16 @@ import {
   registerWhatsappIntegrationRequestSchema,
   rotateWhatsappCredentialRequestSchema,
 } from "../../contracts/api/whatsapp-integration.contract.js";
-import { integrationIdSchema, tenantIdSchema } from "../../contracts/shared/identifiers.js";
+import {
+  conversationIdSchema,
+  integrationIdSchema,
+  tenantIdSchema,
+} from "../../contracts/shared/identifiers.js";
 import { dynamoDocumentClient, kmsClient } from "../../infrastructure/aws/clients.js";
+import { DynamoConversationReader } from "../../infrastructure/dynamodb/dynamo-conversation-reader.js";
 import { DynamoMessageIntegrationReader } from "../../infrastructure/dynamodb/dynamo-message-integration-reader.js";
 import { DynamoOutgoingMessageStore } from "../../infrastructure/dynamodb/dynamo-outgoing-message-store.js";
+import { DynamoRealtimeStore } from "../../infrastructure/dynamodb/dynamo-realtime-store.js";
 import { KmsDynamoTelegramCredentialVault } from "../../infrastructure/dynamodb/kms-dynamo-telegram-credential-vault.js";
 import { DynamoTelegramIntegrationStore } from "../../infrastructure/dynamodb/dynamo-telegram-integration-store.js";
 import { DynamoTenantIntegrationReader } from "../../infrastructure/dynamodb/dynamo-tenant-integration-reader.js";
@@ -67,9 +80,12 @@ const logger = new Logger({
 
 export interface PrivateApiHandlerDependencies {
   completeWhatsappEmbeddedSignup: Pick<CompleteWhatsappEmbeddedSignup, "execute">;
+  createRealtimeTicket: Pick<CreateRealtimeTicket, "execute">;
   ensureTenant: Pick<EnsureTenant, "execute">;
   getTenant: Pick<GetTenant, "byExternalAccount" | "byTenantId">;
   getWhatsappEmbeddedSignupConfiguration: Pick<GetWhatsappEmbeddedSignupConfiguration, "execute">;
+  listConversationMessages: Pick<ListConversationMessages, "execute">;
+  listConversations: Pick<ListConversations, "execute">;
   listTenantIntegrations: Pick<ListTenantIntegrations, "execute">;
   queueMessage: Pick<QueueMessage, "execute">;
   registerTelegramIntegration: Pick<RegisterTelegramIntegration, "execute">;
@@ -80,9 +96,12 @@ export interface PrivateApiHandlerDependencies {
 export const createPrivateApiHandler =
   ({
     completeWhatsappEmbeddedSignup,
+    createRealtimeTicket,
     ensureTenant,
     getWhatsappEmbeddedSignupConfiguration,
     getTenant,
+    listConversationMessages,
+    listConversations,
     listTenantIntegrations,
     queueMessage,
     registerTelegramIntegration,
@@ -114,6 +133,51 @@ export const createPrivateApiHandler =
           },
           correlationId,
         );
+      }
+
+      if (event.routeKey === "GET /v1/tenants/{tenantId}/conversations") {
+        requireScope(identity.scope, "messages:read");
+        const tenantId = tenantIdSchema.parse(event.pathParameters?.tenantId);
+        const query = conversationListQuerySchema.parse(event.queryStringParameters ?? {});
+        await getTenant.byTenantId(identity.applicationId, tenantId);
+        const result = await listConversations.execute({
+          applicationId: identity.applicationId,
+          ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+          integrationId: query.integrationId,
+          limit: query.limit,
+          tenantId,
+        });
+
+        return jsonResponse(200, result, correlationId);
+      }
+
+      if (event.routeKey === "GET /v1/tenants/{tenantId}/conversations/{conversationId}/messages") {
+        requireScope(identity.scope, "messages:read");
+        const tenantId = tenantIdSchema.parse(event.pathParameters?.tenantId);
+        const conversationId = conversationIdSchema.parse(event.pathParameters?.conversationId);
+        const query = conversationMessageListQuerySchema.parse(event.queryStringParameters ?? {});
+        await getTenant.byTenantId(identity.applicationId, tenantId);
+        const result = await listConversationMessages.execute({
+          applicationId: identity.applicationId,
+          conversationId,
+          ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+          limit: query.limit,
+          tenantId,
+        });
+
+        return jsonResponse(200, result, correlationId);
+      }
+
+      if (event.routeKey === "POST /v1/tenants/{tenantId}/realtime/tickets") {
+        requireScope(identity.scope, "messages:read");
+        const tenantId = tenantIdSchema.parse(event.pathParameters?.tenantId);
+        await getTenant.byTenantId(identity.applicationId, tenantId);
+        const result = await createRealtimeTicket.execute({
+          applicationId: identity.applicationId,
+          tenantId,
+        });
+
+        return jsonResponse(201, result, correlationId);
       }
 
       if (event.routeKey === "POST /v1/messages") {
@@ -288,6 +352,7 @@ const whatsappIntegrationStore = new DynamoWhatsappIntegrationStore(
   dynamoDocumentClient,
   config.CONTROL_TABLE,
 );
+const realtimeStore = new DynamoRealtimeStore(dynamoDocumentClient, config.CONTROL_TABLE);
 const whatsappEmbeddedSignupConfiguration = new KmsDynamoWhatsappEmbeddedSignupConfiguration(
   dynamoDocumentClient,
   kmsClient,
@@ -300,6 +365,11 @@ const whatsappEmbeddedSignupConfiguration = new KmsDynamoWhatsappEmbeddedSignupC
 const whatsappIntegrationAdminReader = new DynamoWhatsappIntegrationAdminReader(
   dynamoDocumentClient,
   config.CONTROL_TABLE,
+);
+const conversationReader = new DynamoConversationReader(
+  dynamoDocumentClient,
+  config.CONTROL_TABLE,
+  config.DATA_TABLE,
 );
 const outgoingMessageStore = new DynamoOutgoingMessageStore(
   dynamoDocumentClient,
@@ -358,6 +428,10 @@ export const main = createPrivateApiHandler({
       graphApiVersion: config.WHATSAPP_GRAPH_API_VERSION,
     },
   ),
+  createRealtimeTicket: new CreateRealtimeTicket(realtimeStore, {
+    ttlSeconds: config.REALTIME_TICKET_TTL_SECONDS,
+    websocketUrl: config.REALTIME_WEBSOCKET_URL,
+  }),
   ensureTenant: new EnsureTenant(tenantStore),
   getTenant: new GetTenant(tenantStore),
   getWhatsappEmbeddedSignupConfiguration: new GetWhatsappEmbeddedSignupConfiguration(
@@ -366,6 +440,8 @@ export const main = createPrivateApiHandler({
       graphApiVersion: config.WHATSAPP_GRAPH_API_VERSION,
     },
   ),
+  listConversationMessages: new ListConversationMessages(conversationReader),
+  listConversations: new ListConversations(conversationReader),
   listTenantIntegrations: new ListTenantIntegrations(tenantIntegrationReader),
   queueMessage: new QueueMessage(
     new DynamoMessageIntegrationReader(dynamoDocumentClient, config.CONTROL_TABLE),

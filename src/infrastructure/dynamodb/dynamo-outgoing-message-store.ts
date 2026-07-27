@@ -4,6 +4,8 @@ import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { GetCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
+import { buildConversationIndexKeys } from "./conversation-index.js";
+
 import type {
   OutgoingMessageStore,
   ReserveTelegramMessageInput,
@@ -124,6 +126,13 @@ export class DynamoOutgoingMessageStore implements OutgoingMessageStore {
     const idempotencyKey = commandIdempotencyKey(input.applicationId, input.idempotencyKey);
     const messageSortKey = `MESSAGE#${input.occurredAt}#${input.messageId}`;
     const identityId = deterministicIdentityId(input.integrationId, input.chatId);
+    const conversationIndex = buildConversationIndexKeys({
+      applicationId: input.applicationId,
+      conversationId: input.conversationId,
+      integrationId: input.integrationId,
+      lastMessageAt: input.occurredAt,
+      tenantId: input.tenantId,
+    });
     const destinationWrites = input.createDestinationRecords
       ? this.#destinationWrites(input, identityId)
       : [
@@ -132,6 +141,9 @@ export class DynamoOutgoingMessageStore implements OutgoingMessageStore {
               ConditionExpression:
                 "attribute_exists(PK) AND tenantId = :tenantId AND integrationId = :integrationId",
               ExpressionAttributeValues: {
+                ":applicationId": input.applicationId,
+                ":gsi1pk": conversationIndex.GSI1PK,
+                ":gsi1sk": conversationIndex.GSI1SK,
                 ":integrationId": input.integrationId,
                 ":lastMessageAt": input.occurredAt,
                 ":tenantId": input.tenantId,
@@ -141,7 +153,9 @@ export class DynamoOutgoingMessageStore implements OutgoingMessageStore {
                 SK: "META",
               },
               TableName: this.#controlTable,
-              UpdateExpression: "SET lastMessageAt = :lastMessageAt",
+              UpdateExpression:
+                "SET applicationId = :applicationId, GSI1PK = :gsi1pk, " +
+                "GSI1SK = :gsi1sk, lastMessageAt = :lastMessageAt",
             },
           },
         ];
@@ -281,6 +295,14 @@ export class DynamoOutgoingMessageStore implements OutgoingMessageStore {
   }
 
   #destinationWrites(input: ReserveTelegramMessageInput, identityId: string) {
+    const conversationIndex = buildConversationIndexKeys({
+      applicationId: input.applicationId,
+      conversationId: input.conversationId,
+      integrationId: input.integrationId,
+      lastMessageAt: input.occurredAt,
+      tenantId: input.tenantId,
+    });
+
     return [
       {
         Update: {
@@ -319,9 +341,12 @@ export class DynamoOutgoingMessageStore implements OutgoingMessageStore {
         Update: {
           ExpressionAttributeNames: { "#status": "status" },
           ExpressionAttributeValues: {
+            ":applicationId": input.applicationId,
             ":conversationId": input.conversationId,
             ":createdAt": input.occurredAt,
             ":entityType": "CONVERSATION",
+            ":gsi1pk": conversationIndex.GSI1PK,
+            ":gsi1sk": conversationIndex.GSI1SK,
             ":identityId": identityId,
             ":integrationId": input.integrationId,
             ":lastMessageAt": input.occurredAt,
@@ -331,7 +356,8 @@ export class DynamoOutgoingMessageStore implements OutgoingMessageStore {
           Key: { PK: `CONVERSATION#${input.conversationId}`, SK: "META" },
           TableName: this.#controlTable,
           UpdateExpression:
-            "SET entityType = :entityType, conversationId = :conversationId, " +
+            "SET applicationId = :applicationId, entityType = :entityType, " +
+            "GSI1PK = :gsi1pk, GSI1SK = :gsi1sk, conversationId = :conversationId, " +
             "tenantId = :tenantId, integrationId = :integrationId, identityId = :identityId, " +
             "createdAt = if_not_exists(createdAt, :createdAt), " +
             "lastMessageAt = :lastMessageAt, #status = :status",

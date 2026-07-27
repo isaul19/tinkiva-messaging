@@ -11,6 +11,9 @@ importers:
       '@aws-lambda-powertools/logger':
         specifier: 2.34.0
         version: 2.34.0
+      '@aws-sdk/client-apigatewaymanagementapi':
+        specifier: 3.1095.0
+        version: 3.1095.0
       '@aws-sdk/client-dynamodb':
         specifier: 3.1095.0
         version: 3.1095.0
@@ -26,6 +29,9 @@ importers:
       '@aws-sdk/lib-dynamodb':
         specifier: 3.1095.0
         version: 3.1095.0(@aws-sdk/client-dynamodb@3.1095.0)
+      '@aws-sdk/util-dynamodb':
+        specifier: 3.996.7
+        version: 3.996.7(@aws-sdk/client-dynamodb@3.1095.0)
       jose:
         specifier: 6.2.4
         version: 6.2.4
@@ -88,6 +94,10 @@ packages:
         optional: true
       '@middy/core':
         optional: true
+
+  '@aws-sdk/client-apigatewaymanagementapi@3.1095.0':
+    resolution: {integrity: sha512-tPLLSUa2huKWlNLLorWNSNLzxp5uiQbEQ/bOKrGeslu5W2fyDdHdKc09DIYFFbrsL2LoXLqAG85+XllJwytTCg==}
+    engines: {node: '>=20.0.0'}
 
   '@aws-sdk/client-dynamodb@3.1095.0':
     resolution: {integrity: sha512-b1Y9NW5U1mOpkmLMnjZeUCo5FchTYfE3ththqXX6MA0beHpDwPydm5UPCJ0gcyHGvlPEYCU7NwANZwGHy+zCzA==}
@@ -1415,6 +1425,17 @@ snapshots:
     dependencies:
       '@aws-lambda-powertools/commons': 2.34.0
       '@aws/lambda-invoke-store': 0.3.0
+
+  '@aws-sdk/client-apigatewaymanagementapi@3.1095.0':
+    dependencies:
+      '@aws-sdk/core': 3.977.0
+      '@aws-sdk/credential-provider-node': 3.972.72
+      '@aws-sdk/types': 3.974.2
+      '@smithy/core': 3.29.8
+      '@smithy/fetch-http-handler': 5.6.10
+      '@smithy/node-http-handler': 4.9.10
+      '@smithy/types': 4.16.1
+      tslib: 2.8.1
 
   '@aws-sdk/client-dynamodb@3.1095.0':
     dependencies:

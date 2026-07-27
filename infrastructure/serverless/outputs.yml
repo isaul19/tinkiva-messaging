@@ -33,6 +33,16 @@ Outputs:
     Description: FIFO queue for application delivery events.
     Value:
       Ref: AppEventsQueue
+  RealtimeWebsocketUrl:
+    Description: Tenant-scoped realtime WebSocket endpoint.
+    Value:
+      Fn::Join:
+        - ""
+        - - "wss://"
+          - Ref: WebsocketsApi
+          - ".execute-api."
+          - Ref: AWS::Region
+          - ".amazonaws.com/${sls:stage}"
   MediaQueueUrl:
     Description: Standard queue for asynchronous media processing.
     Value:

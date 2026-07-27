@@ -77,6 +77,8 @@ Resources:
       SSESpecification:
         SSEEnabled: true
         SSEType: KMS
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
       TimeToLiveSpecification:
         AttributeName: expiresAt
         Enabled: true

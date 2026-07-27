@@ -4,6 +4,8 @@ const privateApiRuntimeConfigSchema = z.object({
   CONTROL_TABLE: z.string().min(1),
   PROVIDER_CREDENTIALS_KEY_ARN: z.string().min(1),
   DATA_TABLE: z.string().min(1),
+  REALTIME_TICKET_TTL_SECONDS: z.coerce.number().int().min(30).max(300),
+  REALTIME_WEBSOCKET_URL: z.url().refine((value) => value.startsWith("wss://")),
   STAGE: z.string().min(1),
   TELEGRAM_OUTBOUND_QUEUE_URL: z.string().min(1),
   TELEGRAM_WEBHOOK_BASE_URL: z.url(),

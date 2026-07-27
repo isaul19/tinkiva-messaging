@@ -4,6 +4,7 @@ import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 
 import type {
   CreateWhatsappIntegrationRecords,
+  DeletePendingWhatsappIntegrationRecords,
   WhatsappIntegrationStore,
 } from "../../application/ports/whatsapp-integration-store.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
@@ -135,6 +136,74 @@ export class DynamoWhatsappIntegrationStore implements WhatsappIntegrationStore 
 
       throw error;
     }
+  }
+
+  public async deletePending(input: DeletePendingWhatsappIntegrationRecords): Promise<void> {
+    const records = [
+      {
+        expectedAttribute: "providerConnectionId",
+        expectedValue: input.providerConnectionId,
+        Key: {
+          PK: `PROVIDER_CONNECTION#${input.providerConnectionId}`,
+          SK: "META",
+        },
+      },
+      {
+        expectedAttribute: "providerConnectionId",
+        expectedValue: input.providerConnectionId,
+        Key: {
+          PK: `INTEGRATION#${input.integrationId}`,
+          SK: "META",
+        },
+      },
+      {
+        expectedAttribute: "integrationId",
+        expectedValue: input.integrationId,
+        Key: {
+          PK: `TENANT#${input.tenantId}`,
+          SK: `INTEGRATION#WHATSAPP#${input.integrationId}`,
+        },
+      },
+      {
+        expectedAttribute: "providerConnectionId",
+        expectedValue: input.providerConnectionId,
+        Key: {
+          PK: `WEBHOOK#WHATSAPP#${input.webhookKey}`,
+          SK: "REF",
+        },
+      },
+      {
+        expectedAttribute: "providerConnectionId",
+        expectedValue: input.providerConnectionId,
+        Key: {
+          PK: `WHATSAPP_WABA#${input.wabaId}`,
+          SK: "REF",
+        },
+      },
+      {
+        expectedAttribute: "providerConnectionId",
+        expectedValue: input.providerConnectionId,
+        Key: {
+          PK: `WHATSAPP_PHONE_NUMBER#${input.phoneNumberId}`,
+          SK: "REF",
+        },
+      },
+    ];
+
+    await this.#client.send(
+      new TransactWriteCommand({
+        TransactItems: records.map(({ expectedAttribute, expectedValue, Key }) => ({
+          Delete: {
+            ConditionExpression: `${expectedAttribute} = :expectedValue`,
+            ExpressionAttributeValues: {
+              ":expectedValue": expectedValue,
+            },
+            Key,
+            TableName: this.#tableName,
+          },
+        })),
+      }),
+    );
   }
 
   public async setStatus(

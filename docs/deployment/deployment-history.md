@@ -349,3 +349,135 @@ Security verification:
 
 This bucket is managed at the Serverless account level and is not part of the application stack. Do
 not delete it until every Serverless service in this account and region has been checked.
+
+## 2026-07-26 — Conversation inbox API and Storagia integration
+
+- Operator: Codex using the authenticated AWS administrator profile.
+- Stage: `dev`.
+- Region: `us-east-1`.
+- Gateway stack: `tinkiva-messaging-gateway-dev`.
+- Existing HTTP API: `2myga1gnfl`.
+- Existing control table: `messaging-control-dev`.
+- Existing data table: `messaging-data-dev`.
+
+Commands:
+
+```powershell
+pnpm verify
+pnpm package
+pnpm exec serverless deploy --stage dev
+pnpm admin:backfill-conversation-index -- --table messaging-control-dev --region us-east-1
+pnpm admin:backfill-conversation-index -- --table messaging-control-dev --region us-east-1 --apply
+```
+
+No new AWS service or billable standalone resource was created. The deployment added two routes to
+the existing HTTP API and updated the existing private API/inbound/outbound Lambdas:
+
+```text
+GET /v1/tenants/{tenantId}/conversations
+GET /v1/tenants/{tenantId}/conversations/{conversationId}/messages
+```
+
+The control table already had `GSI1`; conversation records now use a sparse partition scoped by
+application, tenant, and integration. The dry run found two pre-existing conversation records and
+the apply run updated both with `applicationId`, `GSI1PK`, and `GSI1SK`. Re-running the command is
+safe because already indexed records are skipped.
+
+Verification:
+
+- `pnpm verify`: 49 files and 115 tests passed; coverage remained above 80% in every category.
+- Direct API Gateway route inspection confirmed both GET routes after deployment.
+- Authenticated live query returned one WhatsApp conversation and four durable messages.
+- The first conversation included inbound and outbound records, including `READ` and `FAILED`
+  delivery states.
+- Storagia backend and frontend dev stacks were deployed separately after their own lint, test, and
+  build checks.
+
+Rollback: deploy the previous gateway source state. Do not delete either DynamoDB table or remove
+the added index attributes; older Lambda versions ignore them and they preserve message history.
+
+## 2026-07-26 — WhatsApp webhook URL and retry-safe registration
+
+- Stage: `dev`; region: `us-east-1`.
+- Existing stack redeployed: `tinkiva-messaging-gateway-dev`.
+- The development callback base URL now uses the existing API Gateway endpoint.
+- Failed provider registration now compensates all pending indexes and the encrypted credential,
+  allowing the same WABA and phone number to be retried.
+- The prior failed test integration was conditionally removed from `messaging-control-dev`; the
+  tenant and unrelated integrations were preserved.
+- No AWS resource was created, renamed, or deleted.
+- Verification: 50 test files, 116 tests, package validation, live health check, deployed Lambda
+  environment check, and a consistent DynamoDB read showing zero remaining failed-integration keys.
+
+Full procedure and recovery notes: `docs/deployment/whatsapp-webhook-retry-fix.md`.
+
+## 2026-07-26 — Realtime messaging delivery and Storagia WebSocket integration
+
+- Operator: Codex using the authenticated AWS administrator profile.
+- Stage: `dev`.
+- Region: `us-east-1`.
+- Gateway stack: `tinkiva-messaging-gateway-dev`.
+- Storagia stacks: `storagia-backend-dev` and `storagia-frontend-dev`.
+
+Commands:
+
+```powershell
+pnpm verify
+pnpm package
+pnpm exec serverless deploy --stage dev
+
+Set-Location C:\Proyectos\StoragIA\Backend
+pnpm run ci
+pnpm run serverless-deploy-dev
+
+Set-Location C:\Proyectos\StoragIA\Frontend
+pnpm run lint
+pnpm run build
+pnpm run serverless-deploy-dev
+```
+
+CloudFormation created or updated:
+
+```text
+WebSocket API: wss://u854ghkv5h.execute-api.us-east-1.amazonaws.com/dev
+Lambda: tinkiva-messaging-gateway-dev-appEventProjector
+Lambda: tinkiva-messaging-gateway-dev-realtimeConnection
+Lambda: tinkiva-messaging-gateway-dev-realtimeDispatcher
+IAM role: tinkiva-messaging-app-event-projector-dev
+IAM role: tinkiva-messaging-realtime-connection-dev
+IAM role: tinkiva-messaging-realtime-dispatcher-dev
+DynamoDB stream mapping: 442e96df-5ae8-47da-a822-ca89c3f80dea
+SQS dispatcher mapping: cd4282b9-501f-46f5-a7fb-c3a7f3ff13b7
+```
+
+The existing `messaging-data-dev` table was updated with `NEW_AND_OLD_IMAGES`. The existing
+`messaging-app-events-dev.fifo`, its DLQ, and the control table were reused. No DynamoDB table, SQS
+queue, NAT Gateway, or always-on server was added.
+
+Deployment recovery:
+
+- The first update failed because API Gateway had not yet observed its account-level CloudWatch role
+  while creating the WebSocket stage.
+- Rollback left `/aws/lambda/tinkiva-messaging-gateway-dev-custom-resource-apigw-cw-role` as an
+  unowned log group with zero stored bytes.
+- The exact empty log group was deleted and cannot be recovered; it contained no events.
+- A live handshake then exposed missing DynamoDB transaction sub-actions. The dedicated roles and
+  the packaged-template validator were updated with the required `DeleteItem` and `PutItem`
+  permissions before the final deployment.
+
+Verification:
+
+- TinkivaMessaging: 55 test files and 123 tests passed; overall branch coverage was 81.72%.
+- Storagia backend: 51 test suites and 214 tests passed, followed by Nest build.
+- Storagia frontend: TypeScript/Vite build and Oxlint passed; existing Fast Refresh warnings remain.
+- Authenticated ticket creation returned `201`.
+- WebSocket `$connect` consumed the ticket and `ping` returned `pong`.
+- Reusing the already consumed ticket was rejected during the handshake.
+- A temporary synthetic message traversed DynamoDB Stream, `appEventProjector`, the existing FIFO,
+  `realtimeDispatcher`, and the scoped WebSocket as `message.received`.
+- The temporary message was deleted immediately; the event queue and DLQ both reported zero visible
+  and zero in-flight messages afterward.
+- The public health endpoint returned `{"service":"tinkiva-messaging-gateway","status":"ok"}`.
+
+Full architecture, endpoint, payload, cost, and rollback procedure:
+`docs/deployment/realtime-messaging.md`.

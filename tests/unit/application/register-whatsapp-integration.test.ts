@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { DeletePendingWhatsappIntegrationRecords } from "../../../src/application/ports/whatsapp-integration-store.js";
 import type { CreateWhatsappCredentialInput } from "../../../src/application/ports/whatsapp-credential-vault.js";
 import type { WhatsappManagementApi } from "../../../src/application/ports/whatsapp-management-api.js";
 import { RegisterWhatsappIntegration } from "../../../src/application/whatsapp/register-whatsapp-integration.js";
@@ -16,6 +17,7 @@ const request = {
 
 const createDependencies = () => {
   const credentialInputs: CreateWhatsappCredentialInput[] = [];
+  const rollbackInputs: DeletePendingWhatsappIntegrationRecords[] = [];
   const subscriptionInputs: Parameters<WhatsappManagementApi["subscribeWaba"]>[0][] = [];
   const managementApi = {
     getPhoneNumbers: vi.fn().mockResolvedValue([
@@ -39,10 +41,21 @@ const createDependencies = () => {
   };
   const store = {
     createPending: vi.fn().mockResolvedValue(undefined),
+    deletePending: vi.fn((input: DeletePendingWhatsappIntegrationRecords) => {
+      rollbackInputs.push(input);
+      return Promise.resolve();
+    }),
     setStatus: vi.fn().mockResolvedValue(undefined),
   };
 
-  return { credentialInputs, credentials, managementApi, store, subscriptionInputs };
+  return {
+    credentialInputs,
+    credentials,
+    managementApi,
+    rollbackInputs,
+    store,
+    subscriptionInputs,
+  };
 };
 
 describe("RegisterWhatsappIntegration", () => {
@@ -109,6 +122,7 @@ describe("RegisterWhatsappIntegration", () => {
       "ACTIVE",
       expect.any(String),
     );
+    expect(dependencies.store.deletePending).not.toHaveBeenCalled();
   });
 
   it("rejects a phone number outside the WABA before storing credentials", async () => {
@@ -137,7 +151,7 @@ describe("RegisterWhatsappIntegration", () => {
     expect(dependencies.credentials.create).not.toHaveBeenCalled();
   });
 
-  it("marks the integration as errored when Meta rejects the subscription", async () => {
+  it("rolls back the integration and credential when Meta rejects the subscription", async () => {
     const dependencies = createDependencies();
     dependencies.managementApi.subscribeWaba.mockRejectedValue(new Error("subscription failed"));
     const useCase = new RegisterWhatsappIntegration(
@@ -157,15 +171,18 @@ describe("RegisterWhatsappIntegration", () => {
         tenantId: "tenant_test",
       }),
     ).rejects.toThrow("subscription failed");
-    expect(dependencies.store.setStatus).toHaveBeenLastCalledWith(
-      expect.any(String),
-      request.phoneNumberId,
-      expect.any(String),
-      "tenant_test",
-      request.wabaId,
-      expect.any(String),
-      "ERROR",
-      expect.any(String),
-    );
+    expect(dependencies.store.deletePending).toHaveBeenCalledTimes(1);
+    const rollbackInput = dependencies.rollbackInputs[0];
+    expect(rollbackInput).toMatchObject({
+      phoneNumberId: request.phoneNumberId,
+      tenantId: "tenant_test",
+      wabaId: request.wabaId,
+    });
+    expect(rollbackInput?.integrationId).toMatch(/^int_/);
+    expect(rollbackInput?.providerConnectionId).toMatch(/^pc_/);
+    expect(rollbackInput?.webhookKey).toHaveLength(43);
+    expect(dependencies.credentials.deleteImmediately).toHaveBeenCalledTimes(1);
+    expect(dependencies.credentials.deleteImmediately.mock.calls[0]?.[0]).toMatch(/^pc_/);
+    expect(dependencies.store.setStatus).not.toHaveBeenCalled();
   });
 });

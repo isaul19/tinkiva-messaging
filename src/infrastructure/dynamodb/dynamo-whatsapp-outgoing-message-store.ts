@@ -4,6 +4,8 @@ import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { GetCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
+import { buildConversationIndexKeys } from "./conversation-index.js";
+
 import type {
   ReserveWhatsappMessageInput,
   ReservedWhatsappMessage,
@@ -131,6 +133,13 @@ export class DynamoWhatsappOutgoingMessageStore implements WhatsappOutgoingMessa
       input.recipientType,
       input.recipientId,
     );
+    const conversationIndex = buildConversationIndexKeys({
+      applicationId: input.applicationId,
+      conversationId: input.conversationId,
+      integrationId: input.integrationId,
+      lastMessageAt: input.occurredAt,
+      tenantId: input.tenantId,
+    });
     const destinationWrites = input.createDestinationRecords
       ? this.#destinationWrites(input, identityId)
       : [
@@ -139,6 +148,9 @@ export class DynamoWhatsappOutgoingMessageStore implements WhatsappOutgoingMessa
               ConditionExpression:
                 "attribute_exists(PK) AND tenantId = :tenantId AND integrationId = :integrationId",
               ExpressionAttributeValues: {
+                ":applicationId": input.applicationId,
+                ":gsi1pk": conversationIndex.GSI1PK,
+                ":gsi1sk": conversationIndex.GSI1SK,
                 ":integrationId": input.integrationId,
                 ":lastMessageAt": input.occurredAt,
                 ":tenantId": input.tenantId,
@@ -148,7 +160,9 @@ export class DynamoWhatsappOutgoingMessageStore implements WhatsappOutgoingMessa
                 SK: "META",
               },
               TableName: this.#controlTable,
-              UpdateExpression: "SET lastMessageAt = :lastMessageAt",
+              UpdateExpression:
+                "SET applicationId = :applicationId, GSI1PK = :gsi1pk, " +
+                "GSI1SK = :gsi1sk, lastMessageAt = :lastMessageAt",
             },
           },
         ];
@@ -290,6 +304,14 @@ export class DynamoWhatsappOutgoingMessageStore implements WhatsappOutgoingMessa
   }
 
   #destinationWrites(input: ReserveWhatsappMessageInput, identityId: string) {
+    const conversationIndex = buildConversationIndexKeys({
+      applicationId: input.applicationId,
+      conversationId: input.conversationId,
+      integrationId: input.integrationId,
+      lastMessageAt: input.occurredAt,
+      tenantId: input.tenantId,
+    });
+
     return [
       {
         Update: {
@@ -328,9 +350,12 @@ export class DynamoWhatsappOutgoingMessageStore implements WhatsappOutgoingMessa
         Update: {
           ExpressionAttributeNames: { "#status": "status" },
           ExpressionAttributeValues: {
+            ":applicationId": input.applicationId,
             ":conversationId": input.conversationId,
             ":createdAt": input.occurredAt,
             ":entityType": "CONVERSATION",
+            ":gsi1pk": conversationIndex.GSI1PK,
+            ":gsi1sk": conversationIndex.GSI1SK,
             ":identityId": identityId,
             ":integrationId": input.integrationId,
             ":lastMessageAt": input.occurredAt,
@@ -343,7 +368,8 @@ export class DynamoWhatsappOutgoingMessageStore implements WhatsappOutgoingMessa
           },
           TableName: this.#controlTable,
           UpdateExpression:
-            "SET entityType = :entityType, conversationId = :conversationId, " +
+            "SET applicationId = :applicationId, entityType = :entityType, " +
+            "GSI1PK = :gsi1pk, GSI1SK = :gsi1sk, conversationId = :conversationId, " +
             "tenantId = :tenantId, integrationId = :integrationId, identityId = :identityId, " +
             "createdAt = if_not_exists(createdAt, :createdAt), " +
             "lastMessageAt = :lastMessageAt, #status = :status",

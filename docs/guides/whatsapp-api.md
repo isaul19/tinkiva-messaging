@@ -352,7 +352,96 @@ This is the preferred reply flow because it uses the identity discovered from a 
 message. When that identity is BSUID-based, the gateway preserves BSUID as the canonical identity
 but uses the verified phone alias from the same webhook as Meta's message delivery destination.
 
-## 8. Send text to a known WhatsApp recipient
+## 8. List conversations
+
+Required application scope:
+
+```text
+messages:read
+```
+
+```http
+GET /v1/tenants/{tenantId}/conversations?integrationId={integrationId}&limit=25
+Authorization: Bearer <application-access-token>
+```
+
+The response is ordered by newest activity. It contains only public participant and message fields;
+provider credentials, webhook keys, raw events, and internal identity aliases are never returned.
+
+```json
+{
+  "tenantId": "tenant_...",
+  "items": [
+    {
+      "conversationId": "conv_...",
+      "integrationId": "int_...",
+      "tenantId": "tenant_...",
+      "provider": "WHATSAPP",
+      "status": "OPEN",
+      "createdAt": "2026-07-26T01:10:01.000Z",
+      "lastMessageAt": "2026-07-26T01:31:30.000Z",
+      "participant": {
+        "displayName": "Cliente",
+        "phoneNumber": "+51900000000"
+      },
+      "lastMessage": {
+        "conversationId": "conv_...",
+        "integrationId": "int_...",
+        "messageId": "msg_...",
+        "provider": "WHATSAPP",
+        "direction": "INBOUND",
+        "status": "RECEIVED",
+        "occurredAt": "2026-07-26T01:31:30.000Z",
+        "type": "TEXT",
+        "text": "Hola"
+      }
+    }
+  ],
+  "nextCursor": "<opaque-base64url-cursor>"
+}
+```
+
+`limit` accepts 1 to 50 and defaults to 25. Pass `nextCursor` unchanged as `cursor` to load the next
+page. Cursors are scoped to the application, tenant, and integration.
+
+## 9. Read messages from a conversation
+
+Required application scope:
+
+```text
+messages:read
+```
+
+```http
+GET /v1/tenants/{tenantId}/conversations/{conversationId}/messages?limit=50
+Authorization: Bearer <application-access-token>
+```
+
+```json
+{
+  "tenantId": "tenant_...",
+  "conversationId": "conv_...",
+  "items": [
+    {
+      "conversationId": "conv_...",
+      "integrationId": "int_...",
+      "messageId": "msg_...",
+      "provider": "WHATSAPP",
+      "direction": "OUTBOUND",
+      "status": "READ",
+      "occurredAt": "2026-07-26T01:23:55.108Z",
+      "type": "TEXT",
+      "text": "Gracias por escribirnos."
+    }
+  ],
+  "nextCursor": "<opaque-base64url-cursor>"
+}
+```
+
+Each page is returned in chronological order. Pagination walks toward older messages; prepend each
+additional page in the consuming UI. `limit` accepts 1 to 100 and defaults to 50.
+
+## 10. Send text to a known WhatsApp recipient
 
 By phone:
 
@@ -412,7 +501,7 @@ Accepted response:
 Repeating the same `Idempotency-Key` with the same request returns the original `messageId`. Reusing
 it with another request returns `409 IDEMPOTENCY_KEY_REUSED`.
 
-## 9. Operational boundaries
+## 11. Operational boundaries
 
 - Inbound and outbound text are implemented.
 - Media and template payloads are not implemented yet.
@@ -420,6 +509,61 @@ it with another request returns `409 IDEMPOTENCY_KEY_REUSED`.
   that window, use of an approved template will be required once template sending is implemented.
 - If Meta rejects a message permanently, the durable state becomes `FAILED`; transient failures
   release the processing lease for SQS retry.
-- The application-event dispatcher and conversation query API remain pending.
+- The application-event dispatcher remains pending. Paginated conversation and message queries are
+  implemented.
 - Shared WABA/multi-number onboarding remains pending. Manual access-token rotation is available; do
   not overwrite ciphertext items manually because their KMS encryption context is mandatory.
+
+## Bandeja de conversaciones
+
+La integración manual de WhatsApp expone una bandeja paginada y no requiere Embedded Signup.
+
+### Listar conversaciones
+
+```http
+GET /v1/tenants/{tenantId}/conversations?integrationId={integrationId}&limit=25&cursor={cursor}
+Authorization: Bearer {accessToken}
+```
+
+- Scope requerido: `messages:read`.
+- `integrationId` es obligatorio.
+- `limit` admite de 1 a 50.
+- `cursor` es opcional, opaco y queda ligado a la aplicación, tenant e integración de la consulta.
+
+### Listar mensajes
+
+```http
+GET /v1/tenants/{tenantId}/conversations/{conversationId}/messages?limit=50&cursor={cursor}
+Authorization: Bearer {accessToken}
+```
+
+- Scope requerido: `messages:read`.
+- `limit` admite de 1 a 100.
+- La primera página contiene los mensajes más recientes en orden cronológico.
+- `nextCursor` carga mensajes anteriores.
+
+### Responder una conversación
+
+```http
+POST /v1/messages
+Authorization: Bearer {accessToken}
+Content-Type: application/json
+Idempotency-Key: {uuid}
+```
+
+```json
+{
+  "tenantId": "tenant_...",
+  "integrationId": "int_...",
+  "conversationId": "conv_...",
+  "content": {
+    "type": "TEXT",
+    "text": {
+      "body": "Hola, ¿en qué podemos ayudarte?"
+    }
+  }
+}
+```
+
+Para el procedimiento de despliegue, backfill y verificación consulta
+`docs/deployment/conversation-inbox-deployment.md`.

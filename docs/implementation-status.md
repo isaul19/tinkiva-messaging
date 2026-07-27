@@ -79,6 +79,11 @@
 - [x] BSUID-first identity normalization with phone aliases.
 - [x] Inbound text persistence and monotonic `SENT`/`DELIVERED`/`READ`/`FAILED` states.
 - [x] Provider-neutral `POST /v1/messages` dispatch to the WhatsApp outbound FIFO queue.
+- [x] Paginated tenant/integration-scoped conversation listing through the existing control-table
+      GSI.
+- [x] Paginated chronological message history with opaque, scope-validated cursors.
+- [x] SDK conversation/message query methods and Storagia BFF/inbox integration.
+- [x] Idempotent conversation-index backfill CLI for pre-existing records.
 - [x] WhatsApp sender Lambda with durable processing lease and retry behavior.
 - [x] WABA-level uniqueness guard to prevent callback overwrite.
 - [x] Tenant-scoped integration discovery with current credential versions and no secret fields.
@@ -101,3 +106,16 @@
       before onboarding unrelated production customers.
 - [ ] Add approved template and media sending.
 - [ ] Support one shared WABA provider connection with multiple phone-number integrations.
+
+## Phase 5 — Realtime application delivery
+
+- [x] One-time, SHA-256-only WebSocket tickets scoped by application and tenant.
+- [x] Native API Gateway WebSocket routes with connection TTL and atomic ticket consumption.
+- [x] DynamoDB Stream projection for new messages and real status transitions.
+- [x] Reuse of `AppEventsQueue` for ordered, retryable application-event delivery.
+- [x] Stale and gone WebSocket connection cleanup.
+- [x] Typed SDK ticket method and normalized realtime message-event contract.
+- [x] Storagia BFF ticket proxy; gateway JWT and M2M credentials remain server-side.
+- [x] Incremental React Query cache updates with event deduplication and polling fallback.
+- [x] Reproducible resource, endpoint, payload, cost, and rollback documentation.
+- [x] Complete a deployed end-to-end WebSocket smoke test through the durable event pipeline.

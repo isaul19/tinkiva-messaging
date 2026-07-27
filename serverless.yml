@@ -1,6 +1,14 @@
 service: tinkiva-messaging-gateway
 frameworkVersion: "4"
 
+stages:
+  default:
+    params:
+      publicBaseUrl: https://messaging-api.tinkiva.com
+  dev:
+    params:
+      publicBaseUrl: https://2myga1gnfl.execute-api.us-east-1.amazonaws.com
+
 provider:
   name: aws
   runtime: nodejs22.x
@@ -23,6 +31,12 @@ provider:
         payloadVersion: "2.0"
         enableSimpleResponses: true
         resultTtlInSeconds: 0
+  websocketsApiName: tinkiva-messaging-realtime-${sls:stage}
+  websocketsApiRouteSelectionExpression: $request.body.action
+  logs:
+    websocket:
+      level: ERROR
+      fullExecutionData: false
   environment:
     LOG_LEVEL: ${env:LOG_LEVEL, 'INFO'}
     STAGE: ${sls:stage}
@@ -125,6 +139,15 @@ functions:
         Ref: MessagingControlTable
       DATA_TABLE:
         Ref: MessagingDataTable
+      REALTIME_TICKET_TTL_SECONDS: "60"
+      REALTIME_WEBSOCKET_URL:
+        Fn::Join:
+          - ""
+          - - "wss://"
+            - Ref: WebsocketsApi
+            - ".execute-api."
+            - Ref: AWS::Region
+            - ".amazonaws.com/${sls:stage}"
       PROVIDER_CREDENTIALS_KEY_ARN:
         Fn::GetAtt:
           - ProviderCredentialsKey
@@ -180,6 +203,21 @@ functions:
       - httpApi:
           path: /v1/tenants/{tenantId}/integrations/whatsapp/{integrationId}/credentials
           method: PUT
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/tenants/{tenantId}/conversations
+          method: GET
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/tenants/{tenantId}/conversations/{conversationId}/messages
+          method: GET
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/tenants/{tenantId}/realtime/tickets
+          method: POST
           authorizer:
             name: applicationAuthorizer
       - httpApi:
@@ -257,6 +295,89 @@ functions:
           batchSize: 10
           functionResponseType: ReportBatchItemFailures
 
+  appEventProjector:
+    handler: src/functions/app-event-projector/handler.main
+    description:
+      Projects durable message inserts and status changes into normalized application events.
+    timeout: 30
+    role:
+      Fn::GetAtt:
+        - AppEventProjectorLambdaRole
+        - Arn
+    environment:
+      APP_EVENTS_QUEUE_URL:
+        Ref: AppEventsQueue
+    events:
+      - stream:
+          type: dynamodb
+          arn:
+            Fn::GetAtt:
+              - MessagingDataTable
+              - StreamArn
+          batchSize: 100
+          startingPosition: LATEST
+          functionResponseType: ReportBatchItemFailures
+          filterPatterns:
+            - eventName:
+                - INSERT
+                - MODIFY
+              dynamodb:
+                NewImage:
+                  entityType:
+                    S:
+                      - MESSAGE
+
+  realtimeConnection:
+    handler: src/functions/realtime-connection/handler.main
+    description: Consumes one-time tickets and manages tenant-scoped WebSocket connections.
+    timeout: 10
+    role:
+      Fn::GetAtt:
+        - RealtimeConnectionLambdaRole
+        - Arn
+    environment:
+      CONTROL_TABLE:
+        Ref: MessagingControlTable
+    events:
+      - websocket:
+          route: $connect
+      - websocket:
+          route: $disconnect
+      - websocket:
+          route: ping
+          routeResponseSelectionExpression: $default
+      - websocket:
+          route: $default
+          routeResponseSelectionExpression: $default
+
+  realtimeDispatcher:
+    handler: src/functions/realtime-dispatcher/handler.main
+    description: Delivers normalized application events to active tenant WebSocket connections.
+    timeout: 30
+    role:
+      Fn::GetAtt:
+        - RealtimeDispatcherLambdaRole
+        - Arn
+    environment:
+      CONTROL_TABLE:
+        Ref: MessagingControlTable
+      WEBSOCKET_MANAGEMENT_ENDPOINT:
+        Fn::Join:
+          - ""
+          - - "https://"
+            - Ref: WebsocketsApi
+            - ".execute-api."
+            - Ref: AWS::Region
+            - ".amazonaws.com/${sls:stage}"
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - AppEventsQueue
+              - Arn
+          batchSize: 10
+          functionResponseType: ReportBatchItemFailures
+
   telegramSender:
     handler: src/functions/telegram-sender/handler.main
     description: Sends queued Telegram text messages and persists provider status.
@@ -315,6 +436,7 @@ resources:
   - ${file(./infrastructure/serverless/phase2-iam.yml)}
   - ${file(./infrastructure/serverless/phase3-iam.yml)}
   - ${file(./infrastructure/serverless/phase4-iam.yml)}
+  - ${file(./infrastructure/serverless/realtime-iam.yml)}
   - ${file(./infrastructure/serverless/dynamodb.yml)}
   - ${file(./infrastructure/serverless/provider-credentials-kms.yml)}
   - ${file(./infrastructure/serverless/queues.yml)}
