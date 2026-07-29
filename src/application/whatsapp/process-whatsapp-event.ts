@@ -1,6 +1,10 @@
 import { ulid } from "ulid";
 
-import type { WhatsappMessageStore } from "../ports/whatsapp-message-store.js";
+import type { InboundImageImporter } from "../ports/media.js";
+import type {
+  PersistWhatsappTextMessage,
+  WhatsappMessageStore,
+} from "../ports/whatsapp-message-store.js";
 import type {
   WhatsappInboundMessageEnvelope,
   WhatsappInboundStatusEnvelope,
@@ -12,8 +16,10 @@ export interface ProcessWhatsappEventResult {
 
 export class ProcessWhatsappEvent {
   readonly #messages: WhatsappMessageStore;
+  readonly #media: InboundImageImporter | undefined;
 
-  public constructor(messages: WhatsappMessageStore) {
+  public constructor(messages: WhatsappMessageStore, media?: InboundImageImporter) {
+    this.#media = media;
     this.#messages = messages;
   }
 
@@ -25,31 +31,79 @@ export class ProcessWhatsappEvent {
     const tenantId = required(envelope.tenantId, "tenantId");
     const { contact, message } = envelope.payload;
 
-    if (message.type !== "text" || message.text?.body === undefined) {
+    if (
+      (message.type !== "text" || message.text?.body === undefined) &&
+      (message.type !== "image" || message.image === undefined)
+    ) {
       return { result: "IGNORED" };
     }
 
     const bsuid = contact?.user_id ?? contact?.bsuid;
     const phone = resolvePhone(contact?.wa_id, message.from);
-    const canonicalType = bsuid === undefined ? "WHATSAPP_PHONE" : "WHATSAPP_BSUID";
+    const canonicalType =
+      bsuid === undefined ? ("WHATSAPP_PHONE" as const) : ("WHATSAPP_BSUID" as const);
     const canonicalValue = bsuid ?? phone ?? message.from;
-    const result = await this.#messages.persistTextMessage({
+    const messageId = `msg_${ulid()}`;
+    const common = {
       applicationId,
       ...(bsuid === undefined ? {} : { bsuid }),
       canonicalType,
       canonicalValue,
       ...(contact?.profile?.name === undefined ? {} : { displayName: contact.profile.name }),
       integrationId,
-      messageId: `msg_${ulid()}`,
+      messageId,
       occurredAt: new Date(Number(message.timestamp) * 1_000).toISOString(),
       ...(phone === undefined ? {} : { phoneE164: `+${phone}` }),
       providerMessageId: message.id,
       tenantId,
-      text: message.text.body,
       ...(contact?.username === undefined ? {} : { username: contact.username }),
-    });
+    };
+    let result: "CREATED" | "DUPLICATE";
+    if (message.type === "text" && message.text?.body !== undefined) {
+      result = await this.#messages.persistTextMessage({ ...common, text: message.text.body });
+    } else if (message.image !== undefined) {
+      result = await this.#persistImage({
+        common,
+        image: {
+          ...(message.image.caption === undefined ? {} : { caption: message.image.caption }),
+          id: message.image.id,
+          ...(message.image.mime_type === undefined ? {} : { mime_type: message.image.mime_type }),
+          ...(message.image.sha256 === undefined ? {} : { sha256: message.image.sha256 }),
+        },
+      });
+    } else {
+      return { result: "IGNORED" };
+    }
 
     return { result };
+  }
+
+  async #persistImage(input: {
+    common: Omit<PersistWhatsappTextMessage, "text">;
+    image: {
+      caption?: string;
+      id: string;
+      mime_type?: string;
+      sha256?: string;
+    };
+  }): Promise<"CREATED" | "DUPLICATE"> {
+    if (this.#media === undefined || this.#messages.persistImageMessage === undefined) {
+      throw new Error("WhatsApp image processing is not configured.");
+    }
+    const media = await this.#media.importWhatsappImage({
+      applicationId: input.common.applicationId,
+      integrationId: input.common.integrationId,
+      mediaId: input.image.id,
+      messageId: input.common.messageId,
+      ...(input.image.mime_type === undefined ? {} : { mimeType: input.image.mime_type }),
+      ...(input.image.sha256 === undefined ? {} : { providerSha256: input.image.sha256 }),
+      tenantId: input.common.tenantId,
+    });
+    return this.#messages.persistImageMessage({
+      ...input.common,
+      ...(input.image.caption === undefined ? {} : { caption: input.image.caption }),
+      media,
+    });
   }
 
   public async processStatus(

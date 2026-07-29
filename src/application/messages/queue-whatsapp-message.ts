@@ -5,12 +5,17 @@ import type {
   ReservedWhatsappMessage,
   WhatsappOutgoingMessageStore,
 } from "../ports/whatsapp-outgoing-message-store.js";
+import type { OutboundImageImporter } from "../ports/media.js";
+import type { StoredOutgoingContent } from "../ports/outgoing-message-store.js";
 import type {
   SendMessageRequest,
   SendMessageResponse,
 } from "../../contracts/api/message.contract.js";
 import { hashCanonicalJson } from "../../shared/crypto/request-hash.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
+
+const WHATSAPP_IMAGE_MIME_TYPES = ["image/jpeg", "image/png"];
+const WHATSAPP_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 export interface QueueWhatsappMessageCommand {
   applicationId: string;
@@ -19,27 +24,26 @@ export interface QueueWhatsappMessageCommand {
   request: SendMessageRequest;
 }
 
-type WhatsappTextContent = Extract<SendMessageRequest["content"], { type: "TEXT" }>;
-
 export class QueueWhatsappMessage {
+  readonly #media: OutboundImageImporter | undefined;
   readonly #publisher: WhatsappOutboundPublisher;
   readonly #store: WhatsappOutgoingMessageStore;
 
-  public constructor(store: WhatsappOutgoingMessageStore, publisher: WhatsappOutboundPublisher) {
+  public constructor(
+    store: WhatsappOutgoingMessageStore,
+    publisher: WhatsappOutboundPublisher,
+    media?: OutboundImageImporter,
+  ) {
+    this.#media = media;
     this.#publisher = publisher;
     this.#store = store;
   }
 
   public async execute(command: QueueWhatsappMessageCommand): Promise<SendMessageResponse> {
-    if (command.request.content.type !== "TEXT") {
-      throw new ApplicationError(
-        "MESSAGE_NOT_SENDABLE",
-        "WhatsApp media sending is not enabled yet.",
-        422,
-      );
-    }
-
     const content = command.request.content;
+    if (content.type === "IMAGE" && this.#media === undefined) {
+      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Image sending is not configured.", 422);
+    }
     const destination = await this.#store.resolveWhatsappDestination({
       applicationId: command.applicationId,
       ...(command.request.conversationId === undefined
@@ -51,6 +55,8 @@ export class QueueWhatsappMessage {
     });
     const occurredAt = new Date().toISOString();
     const requestHash = hashCanonicalJson(command.request);
+    const messageId = `msg_${ulid()}`;
+    const storedContent = await this.#storedContent(command, `request_${requestHash}`);
     const reserved = await this.#store.reserveWhatsappMessage({
       applicationId: command.applicationId,
       ...(command.request.clientReferenceId === undefined
@@ -60,13 +66,13 @@ export class QueueWhatsappMessage {
       createDestinationRecords: destination.createDestinationRecords,
       idempotencyKey: command.idempotencyKey,
       integrationId: command.request.integrationId,
-      messageId: `msg_${ulid()}`,
+      messageId,
       occurredAt,
       recipientId: destination.recipientId,
       recipientType: destination.recipientType,
       requestHash,
       tenantId: command.request.tenantId,
-      text: content.text.body,
+      content: storedContent,
     });
 
     if (reserved.status === "CREATED") {
@@ -89,7 +95,7 @@ export class QueueWhatsappMessage {
 
   async #publish(
     command: QueueWhatsappMessageCommand,
-    content: WhatsappTextContent,
+    content: SendMessageRequest["content"],
     destination: {
       conversationId: string;
       recipientId: string;
@@ -115,5 +121,31 @@ export class QueueWhatsappMessage {
       schemaVersion: 1,
       tenantId: command.request.tenantId,
     });
+  }
+
+  async #storedContent(
+    command: QueueWhatsappMessageCommand,
+    messageId: string,
+  ): Promise<StoredOutgoingContent> {
+    const content = command.request.content;
+    if (content.type === "TEXT") return { text: content.text.body, type: "TEXT" };
+    if (this.#media === undefined) {
+      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Image sending is not configured.", 422);
+    }
+    const media = await this.#media.importImage({
+      acceptedMimeTypes: WHATSAPP_IMAGE_MIME_TYPES,
+      applicationId: command.applicationId,
+      maxSizeBytes: WHATSAPP_MAX_IMAGE_BYTES,
+      ...(content.media.mediaId === undefined ? {} : { mediaId: content.media.mediaId }),
+      messageId,
+      ...(content.media.url === undefined ? {} : { sourceUrl: content.media.url }),
+      tenantId: command.request.tenantId,
+    });
+    const caption = content.media.text ?? content.media.caption;
+    return {
+      ...(caption === undefined ? {} : { caption }),
+      media,
+      type: "IMAGE",
+    };
   }
 }

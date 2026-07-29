@@ -10,6 +10,7 @@ import type {
   WhatsappSendStore,
 } from "../../application/ports/whatsapp-send-store.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
+import { readStoredMessageContent } from "./stored-message-content.js";
 
 export class DynamoWhatsappSendStore implements WhatsappSendStore {
   readonly #client: DynamoDBDocumentClient;
@@ -41,6 +42,7 @@ export class DynamoWhatsappSendStore implements WhatsappSendStore {
       SK: reference.messageSortKey,
     };
     const message = await this.#get(this.#dataTable, messageKey);
+    const content = readStoredMessageContent(message);
 
     if (
       message?.status === "SENT" ||
@@ -56,7 +58,7 @@ export class DynamoWhatsappSendStore implements WhatsappSendStore {
       message.integrationId !== input.integrationId ||
       message.messageId !== input.messageId ||
       typeof message.recipientId !== "string" ||
-      typeof message.text !== "string"
+      content === undefined
     ) {
       throw new ApplicationError("MESSAGE_NOT_SENDABLE", "The queued message is invalid.", 422);
     }
@@ -147,9 +149,12 @@ export class DynamoWhatsappSendStore implements WhatsappSendStore {
       graphApiVersion: integration.graphApiVersion,
       messageSortKey: reference.messageSortKey,
       phoneNumberId: integration.phoneNumberId,
+      ...(typeof message.providerMediaId === "string"
+        ? { providerMediaId: message.providerMediaId }
+        : {}),
       recipientId: message.recipientId,
       status: "CLAIMED",
-      text: message.text,
+      content,
     };
   }
 
@@ -237,6 +242,31 @@ export class DynamoWhatsappSendStore implements WhatsappSendStore {
         ":statusRank": 10,
       },
       "lastRetryAt = :releasedAt, statusRank = :statusRank",
+    );
+  }
+
+  public async saveProviderMediaId(input: {
+    conversationId: string;
+    messageSortKey: string;
+    providerMediaId: string;
+  }): Promise<void> {
+    await this.#client.send(
+      new UpdateCommand({
+        ConditionExpression: "#status = :processing",
+        ExpressionAttributeNames: {
+          "#status": "status",
+        },
+        ExpressionAttributeValues: {
+          ":processing": "PROCESSING",
+          ":providerMediaId": input.providerMediaId,
+        },
+        Key: {
+          PK: `CONVERSATION#${input.conversationId}`,
+          SK: input.messageSortKey,
+        },
+        TableName: this.#dataTable,
+        UpdateExpression: "SET providerMediaId = if_not_exists(providerMediaId, :providerMediaId)",
+      }),
     );
   }
 

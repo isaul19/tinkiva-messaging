@@ -1,3 +1,4 @@
+import type { MediaUrlSigner } from "../ports/media.js";
 import type { TelegramCredentialReader } from "../ports/telegram-credential-vault.js";
 import type { TelegramMessageApi } from "../ports/telegram-message-api.js";
 import type { TelegramSendStore } from "../ports/telegram-send-store.js";
@@ -12,15 +13,18 @@ export class SendTelegramMessage {
   readonly #api: TelegramMessageApi;
   readonly #secrets: TelegramCredentialReader;
   readonly #store: TelegramSendStore;
+  readonly #media: MediaUrlSigner | undefined;
 
   public constructor(
     store: TelegramSendStore,
     secrets: TelegramCredentialReader,
     api: TelegramMessageApi,
+    media?: MediaUrlSigner,
   ) {
     this.#api = api;
     this.#secrets = secrets;
     this.#store = store;
+    this.#media = media;
   }
 
   public async execute(envelope: TelegramOutboundEnvelope): Promise<SendTelegramMessageResult> {
@@ -40,11 +44,14 @@ export class SendTelegramMessage {
 
     try {
       const secret = await this.#secrets.get(claimed.credentialRef);
-      const result = await this.#api.sendText({
-        botToken: secret.botToken,
-        chatId: claimed.chatId,
-        text: claimed.text,
-      });
+      const result =
+        claimed.content.type === "TEXT"
+          ? await this.#api.sendText({
+              botToken: secret.botToken,
+              chatId: claimed.chatId,
+              text: claimed.content.text,
+            })
+          : await this.#sendImage(secret.botToken, claimed);
       await this.#store.markSent({
         conversationId: claimed.conversationId,
         messageSortKey: claimed.messageSortKey,
@@ -72,6 +79,25 @@ export class SendTelegramMessage {
       });
       throw error;
     }
+  }
+
+  async #sendImage(
+    botToken: string,
+    claimed: Extract<Awaited<ReturnType<TelegramSendStore["acquire"]>>, { status: "CLAIMED" }>,
+  ): Promise<{ providerMessageId: string }> {
+    if (
+      claimed.content.type !== "IMAGE" ||
+      this.#media === undefined ||
+      this.#api.sendImage === undefined
+    ) {
+      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Image sending is not configured.", 422);
+    }
+    return this.#api.sendImage({
+      botToken,
+      ...(claimed.content.caption === undefined ? {} : { caption: claimed.content.caption }),
+      chatId: claimed.chatId,
+      imageUrl: await this.#media.temporaryDownloadUrl(claimed.content.media),
+    });
   }
 }
 

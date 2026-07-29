@@ -8,9 +8,13 @@ import {
   whatsappInboundMessageEnvelopeSchema,
   whatsappInboundStatusEnvelopeSchema,
 } from "../../contracts/queues/whatsapp-inbound.contract.js";
-import { dynamoDocumentClient } from "../../infrastructure/aws/clients.js";
+import { dynamoDocumentClient, kmsClient, s3Client } from "../../infrastructure/aws/clients.js";
+import { KmsDynamoTelegramCredentialVault } from "../../infrastructure/dynamodb/kms-dynamo-telegram-credential-vault.js";
+import { KmsDynamoWhatsappCredentialVault } from "../../infrastructure/dynamodb/kms-dynamo-whatsapp-credential-vault.js";
 import { DynamoTelegramMessageStore } from "../../infrastructure/dynamodb/dynamo-telegram-message-store.js";
 import { DynamoWhatsappMessageStore } from "../../infrastructure/dynamodb/dynamo-whatsapp-message-store.js";
+import { ProviderInboundImageImporter } from "../../infrastructure/media/provider-inbound-image-importer.js";
+import { S3MediaStore } from "../../infrastructure/s3/s3-media-store.js";
 import { loadInboundProcessorRuntimeConfig } from "../../shared/config/inbound-processor-runtime-config.js";
 
 const logger = new Logger({
@@ -76,8 +80,29 @@ const whatsappMessageStore = new DynamoWhatsappMessageStore(
   config.CONTROL_TABLE,
   config.DATA_TABLE,
 );
+const telegramCredentials = new KmsDynamoTelegramCredentialVault(dynamoDocumentClient, kmsClient, {
+  keyArn: config.PROVIDER_CREDENTIALS_KEY_ARN,
+  stage: config.STAGE,
+  tableName: config.CONTROL_TABLE,
+});
+const whatsappCredentials = new KmsDynamoWhatsappCredentialVault(dynamoDocumentClient, kmsClient, {
+  keyArn: config.PROVIDER_CREDENTIALS_KEY_ARN,
+  stage: config.STAGE,
+  tableName: config.CONTROL_TABLE,
+});
+const mediaStore = new S3MediaStore(s3Client, {
+  bucket: config.MEDIA_BUCKET,
+  urlTtlSeconds: config.MEDIA_URL_TTL_SECONDS,
+});
+const inboundImageImporter = new ProviderInboundImageImporter(
+  dynamoDocumentClient,
+  telegramCredentials,
+  whatsappCredentials,
+  mediaStore,
+  { controlTable: config.CONTROL_TABLE },
+);
 
 export const main = createInboundProcessorHandler({
-  processTelegramUpdate: new ProcessTelegramUpdate(telegramMessageStore),
-  processWhatsappEvent: new ProcessWhatsappEvent(whatsappMessageStore),
+  processTelegramUpdate: new ProcessTelegramUpdate(telegramMessageStore, inboundImageImporter),
+  processWhatsappEvent: new ProcessWhatsappEvent(whatsappMessageStore, inboundImageImporter),
 });

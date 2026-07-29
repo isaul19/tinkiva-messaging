@@ -7,6 +7,7 @@ import { GetCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { buildConversationIndexKeys } from "./conversation-index.js";
 
 import type {
+  PersistWhatsappImageMessage,
   PersistWhatsappStatus,
   PersistWhatsappTextMessage,
   WhatsappMessageStore,
@@ -32,6 +33,18 @@ export class DynamoWhatsappMessageStore implements WhatsappMessageStore {
 
   public async persistTextMessage(
     input: PersistWhatsappTextMessage,
+  ): Promise<"CREATED" | "DUPLICATE"> {
+    return this.#persistMessage(input);
+  }
+
+  public async persistImageMessage(
+    input: PersistWhatsappImageMessage,
+  ): Promise<"CREATED" | "DUPLICATE"> {
+    return this.#persistMessage(input);
+  }
+
+  async #persistMessage(
+    input: PersistWhatsappTextMessage | PersistWhatsappImageMessage,
   ): Promise<"CREATED" | "DUPLICATE"> {
     const identityId = deterministicIdentityId(
       input.integrationId,
@@ -200,8 +213,13 @@ export class DynamoWhatsappMessageStore implements WhatsappMessageStore {
                   senderIdentityId: identityId,
                   status: "RECEIVED",
                   tenantId: input.tenantId,
-                  text: input.text,
-                  type: "TEXT",
+                  ...("media" in input
+                    ? {
+                        ...(input.caption === undefined ? {} : { caption: input.caption }),
+                        media: input.media,
+                        type: "IMAGE",
+                      }
+                    : { text: input.text, type: "TEXT" }),
                 },
                 TableName: this.#dataTable,
               },

@@ -9,11 +9,15 @@ describe("WhatsApp runtime configuration", () => {
     const environment = {
       CONTROL_TABLE: "control-test",
       DATA_TABLE: "data-test",
+      MEDIA_BUCKET: "media-test",
       PROVIDER_CREDENTIALS_KEY_ARN: "arn:aws:kms:us-east-1:123:key/test",
       STAGE: "test",
     };
 
-    expect(loadWhatsappSenderRuntimeConfig(environment)).toEqual(environment);
+    expect(loadWhatsappSenderRuntimeConfig(environment)).toEqual({
+      ...environment,
+      MEDIA_URL_TTL_SECONDS: 900,
+    });
   });
 
   it("loads webhook settings and rejects an invalid queue URL", () => {

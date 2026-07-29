@@ -8,10 +8,13 @@ import type { DynamoDBBatchResponse, DynamoDBRecord, DynamoDBStreamEvent } from 
 import { z } from "zod";
 
 import type { ApplicationEventPublisher } from "../../application/ports/application-event-publisher.js";
+import type { MediaUrlSigner } from "../../application/ports/media.js";
 import {
   type RealtimeMessageEvent,
   type RealtimeMessageEventType,
 } from "../../contracts/api/realtime.contract.js";
+import { s3Client } from "../../infrastructure/aws/clients.js";
+import { S3MediaStore } from "../../infrastructure/s3/s3-media-store.js";
 import { SqsApplicationEventPublisher } from "../../infrastructure/sqs/sqs-application-event-publisher.js";
 import { loadAppEventProjectorRuntimeConfig } from "../../shared/config/app-event-projector-runtime-config.js";
 
@@ -20,6 +23,7 @@ const logger = new Logger({
 });
 
 const streamMessageSchema = z.looseObject({
+  caption: z.string().max(1_024).optional(),
   applicationId: z.string().min(1),
   conversationId: z.string().min(1),
   direction: z.enum(["INBOUND", "OUTBOUND"]),
@@ -31,22 +35,35 @@ const streamMessageSchema = z.looseObject({
   status: z.enum(["QUEUED", "SENT", "DELIVERED", "READ", "FAILED", "RECEIVED"]),
   statusUpdatedAt: z.iso.datetime().optional(),
   tenantId: z.string().min(1),
-  text: z.string(),
-  type: z.literal("TEXT"),
+  media: z
+    .object({
+      bucket: z.string().min(1),
+      key: z.string().min(1),
+      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      sizeBytes: z.number().int().positive(),
+    })
+    .optional(),
+  text: z.string().optional(),
+  type: z.enum(["IMAGE", "TEXT"]),
 });
 
 export interface AppEventProjectorHandlerDependencies {
+  media?: MediaUrlSigner;
   publisher: ApplicationEventPublisher;
 }
 
 export const createAppEventProjectorHandler =
-  ({ publisher }: AppEventProjectorHandlerDependencies) =>
+  ({ media, publisher }: AppEventProjectorHandlerDependencies) =>
   async (event: DynamoDBStreamEvent): Promise<DynamoDBBatchResponse> => {
     const batchItemFailures: DynamoDBBatchResponse["batchItemFailures"] = [];
 
     for (const record of event.Records) {
       try {
-        const projected = projectRealtimeMessageEvent(record);
+        const projected =
+          media === undefined
+            ? projectRealtimeMessageEvent(record)
+            : await projectRealtimeMessageEvent(record, media);
         if (projected !== undefined) await publisher.publish(projected);
       } catch (error) {
         logger.error("Failed to project a DynamoDB message event.", {
@@ -62,9 +79,17 @@ export const createAppEventProjectorHandler =
     return { batchItemFailures };
   };
 
-export const projectRealtimeMessageEvent = (
+export function projectRealtimeMessageEvent(
   record: DynamoDBRecord,
-): RealtimeMessageEvent | undefined => {
+): RealtimeMessageEvent | undefined;
+export function projectRealtimeMessageEvent(
+  record: DynamoDBRecord,
+  mediaSigner: MediaUrlSigner,
+): Promise<RealtimeMessageEvent> | RealtimeMessageEvent | undefined;
+export function projectRealtimeMessageEvent(
+  record: DynamoDBRecord,
+  mediaSigner?: MediaUrlSigner,
+): Promise<RealtimeMessageEvent> | RealtimeMessageEvent | undefined {
   if (
     !["INSERT", "MODIFY"].includes(record.eventName ?? "") ||
     record.dynamodb?.NewImage === undefined ||
@@ -78,6 +103,7 @@ export const projectRealtimeMessageEvent = (
   );
 
   if (!current.success) return undefined;
+  const sourceEventId = record.eventID;
 
   if (record.eventName === "MODIFY" && record.dynamodb.OldImage !== undefined) {
     const previous = streamMessageSchema.safeParse(
@@ -88,31 +114,53 @@ export const projectRealtimeMessageEvent = (
 
   const message = current.data;
 
-  return {
+  const common = {
+    conversationId: message.conversationId,
+    direction: message.direction,
+    ...(message.failureCode === undefined ? {} : { failureCode: message.failureCode }),
+    integrationId: message.integrationId,
+    messageId: message.messageId,
+    occurredAt: message.occurredAt,
+    provider: message.provider,
+    status: message.status,
+  };
+  const buildEvent = (
+    projectedMessage: RealtimeMessageEvent["data"]["message"],
+  ): RealtimeMessageEvent => ({
     applicationId: message.applicationId,
     data: {
       conversationId: message.conversationId,
       integrationId: message.integrationId,
-      message: {
-        conversationId: message.conversationId,
-        direction: message.direction,
-        ...(message.failureCode === undefined ? {} : { failureCode: message.failureCode }),
-        integrationId: message.integrationId,
-        messageId: message.messageId,
-        occurredAt: message.occurredAt,
-        provider: message.provider,
-        status: message.status,
-        text: message.text,
-        type: message.type,
-      },
+      message: projectedMessage,
     },
-    eventId: deterministicEventId(record.eventID),
+    eventId: deterministicEventId(sourceEventId),
     occurredAt: message.statusUpdatedAt ?? message.occurredAt,
     schemaVersion: 1,
     tenantId: message.tenantId,
     type: eventTypeForStatus(message.status),
-  };
-};
+  });
+
+  if (message.type === "TEXT") {
+    if (message.text === undefined) return undefined;
+    return buildEvent({ ...common, text: message.text, type: "TEXT" });
+  }
+  if (message.media === undefined || mediaSigner === undefined) return undefined;
+  const storedMedia = message.media;
+  return mediaSigner.temporaryDownloadUrl(storedMedia).then((url) =>
+    buildEvent({
+      ...common,
+      ...(message.caption === undefined ? {} : { caption: message.caption }),
+      media: {
+        mediaId: storedMedia.key,
+        mimeType: storedMedia.mimeType,
+        sha256: storedMedia.sha256,
+        sizeBytes: storedMedia.sizeBytes,
+        url,
+      },
+      type: "IMAGE",
+    }),
+  );
+}
 
 const eventTypeForStatus = (
   status: z.infer<typeof streamMessageSchema>["status"],
@@ -135,5 +183,9 @@ const deterministicEventId = (sourceEventId: string): string =>
 const config = loadAppEventProjectorRuntimeConfig();
 
 export const main = createAppEventProjectorHandler({
+  media: new S3MediaStore(s3Client, {
+    bucket: config.MEDIA_BUCKET,
+    urlTtlSeconds: config.MEDIA_URL_TTL_SECONDS,
+  }),
   publisher: new SqsApplicationEventPublisher(new SQSClient({}), config.APP_EVENTS_QUEUE_URL),
 });

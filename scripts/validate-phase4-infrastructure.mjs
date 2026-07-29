@@ -66,6 +66,7 @@ for (const action of [
   "dynamodb:TransactWriteItems",
   "dynamodb:UpdateItem",
   "kms:Decrypt",
+  "s3:GetObject",
 ]) {
   assert(senderActions.includes(action), `WhatsappSenderLambdaRole must allow ${action}`);
 }

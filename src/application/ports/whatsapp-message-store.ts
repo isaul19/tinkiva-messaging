@@ -1,3 +1,5 @@
+import type { MediaReference } from "./media.js";
+
 export interface PersistWhatsappTextMessage {
   applicationId: string;
   bsuid?: string;
@@ -14,6 +16,11 @@ export interface PersistWhatsappTextMessage {
   username?: string;
 }
 
+export interface PersistWhatsappImageMessage extends Omit<PersistWhatsappTextMessage, "text"> {
+  caption?: string;
+  media: MediaReference;
+}
+
 export interface PersistWhatsappStatus {
   errorCode?: string;
   integrationId: string;
@@ -24,6 +31,7 @@ export interface PersistWhatsappStatus {
 }
 
 export interface WhatsappMessageStore {
+  persistImageMessage?(input: PersistWhatsappImageMessage): Promise<"CREATED" | "DUPLICATE">;
   persistStatus(input: PersistWhatsappStatus): Promise<"IGNORED" | "UPDATED" | "DUPLICATE">;
   persistTextMessage(input: PersistWhatsappTextMessage): Promise<"CREATED" | "DUPLICATE">;
 }

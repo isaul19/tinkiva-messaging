@@ -69,7 +69,7 @@ describe("QueueWhatsappMessage", () => {
         createDestinationRecords: true,
         recipientId: "573001112233",
         recipientType: "WHATSAPP_PHONE",
-        text: "Hola desde Tinkiva",
+        content: { text: "Hola desde Tinkiva", type: "TEXT" },
       }),
     );
     expect(dependencies.publisher.publish).toHaveBeenCalledWith(

@@ -93,6 +93,18 @@ Resources:
                       - Arn
               - Effect: Allow
                 Action:
+                  - kms:Decrypt
+                Resource:
+                  Fn::GetAtt:
+                    - ProviderCredentialsKey
+                    - Arn
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource:
+                  Fn::Sub: ${MessagingMediaBucket.Arn}/tenants/*
+              - Effect: Allow
+                Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
@@ -146,6 +158,11 @@ Resources:
                   Fn::GetAtt:
                     - ProviderCredentialsKey
                     - Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  Fn::Sub: ${MessagingMediaBucket.Arn}/tenants/*
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup

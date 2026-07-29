@@ -3,7 +3,9 @@ import { ulid } from "ulid";
 import type {
   OutgoingMessageStore,
   ReservedTelegramMessage,
+  StoredOutgoingContent,
 } from "../ports/outgoing-message-store.js";
+import type { OutboundImageImporter } from "../ports/media.js";
 import type { TelegramOutboundPublisher } from "../ports/telegram-outbound-publisher.js";
 import type {
   SendMessageRequest,
@@ -19,27 +21,26 @@ export interface QueueTelegramMessageCommand {
   request: SendMessageRequest;
 }
 
-type TelegramTextContent = Extract<SendMessageRequest["content"], { type: "TEXT" }>;
-
 export class QueueTelegramMessage {
+  readonly #media: OutboundImageImporter | undefined;
   readonly #publisher: TelegramOutboundPublisher;
   readonly #store: OutgoingMessageStore;
 
-  public constructor(store: OutgoingMessageStore, publisher: TelegramOutboundPublisher) {
+  public constructor(
+    store: OutgoingMessageStore,
+    publisher: TelegramOutboundPublisher,
+    media?: OutboundImageImporter,
+  ) {
+    this.#media = media;
     this.#store = store;
     this.#publisher = publisher;
   }
 
   public async execute(command: QueueTelegramMessageCommand): Promise<SendMessageResponse> {
-    if (command.request.content.type !== "TEXT") {
-      throw new ApplicationError(
-        "MESSAGE_NOT_SENDABLE",
-        "Telegram media sending is not enabled yet.",
-        422,
-      );
-    }
-
     const content = command.request.content;
+    if (content.type === "IMAGE" && this.#media === undefined) {
+      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Image sending is not configured.", 422);
+    }
     const destination = await this.#store.resolveTelegramDestination({
       applicationId: command.applicationId,
       ...(command.request.conversationId === undefined
@@ -51,6 +52,8 @@ export class QueueTelegramMessage {
     });
     const occurredAt = new Date().toISOString();
     const requestHash = hashCanonicalJson(command.request);
+    const messageId = `msg_${ulid()}`;
+    const storedContent = await this.#storedContent(command, `request_${requestHash}`);
     const reserved = await this.#store.reserveTelegramMessage({
       applicationId: command.applicationId,
       chatId: destination.chatId,
@@ -61,11 +64,11 @@ export class QueueTelegramMessage {
       createDestinationRecords: destination.createDestinationRecords,
       idempotencyKey: command.idempotencyKey,
       integrationId: command.request.integrationId,
-      messageId: `msg_${ulid()}`,
+      messageId,
       occurredAt,
       requestHash,
       tenantId: command.request.tenantId,
-      text: content.text.body,
+      content: storedContent,
     });
 
     if (reserved.status === "CREATED") {
@@ -88,7 +91,7 @@ export class QueueTelegramMessage {
 
   async #publish(
     command: QueueTelegramMessageCommand,
-    content: TelegramTextContent,
+    content: SendMessageRequest["content"],
     destination: { chatId: string; conversationId: string },
     reserved: ReservedTelegramMessage,
     occurredAt: string,
@@ -109,5 +112,29 @@ export class QueueTelegramMessage {
       schemaVersion: 1,
       tenantId: command.request.tenantId,
     });
+  }
+
+  async #storedContent(
+    command: QueueTelegramMessageCommand,
+    messageId: string,
+  ): Promise<StoredOutgoingContent> {
+    const content = command.request.content;
+    if (content.type === "TEXT") return { text: content.text.body, type: "TEXT" };
+    if (this.#media === undefined) {
+      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Image sending is not configured.", 422);
+    }
+    const media = await this.#media.importImage({
+      applicationId: command.applicationId,
+      ...(content.media.mediaId === undefined ? {} : { mediaId: content.media.mediaId }),
+      messageId,
+      ...(content.media.url === undefined ? {} : { sourceUrl: content.media.url }),
+      tenantId: command.request.tenantId,
+    });
+    const caption = content.media.text ?? content.media.caption;
+    return {
+      ...(caption === undefined ? {} : { caption }),
+      media,
+      type: "IMAGE",
+    };
   }
 }

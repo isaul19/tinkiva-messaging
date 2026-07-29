@@ -6,13 +6,17 @@ import { loadTelegramSenderRuntimeConfig } from "../../../src/shared/config/tele
 const environment = {
   CONTROL_TABLE: "control",
   DATA_TABLE: "data",
+  MEDIA_BUCKET: "media-test",
   PROVIDER_CREDENTIALS_KEY_ARN: "arn:aws:kms:us-east-1:123:key/test",
   STAGE: "test",
 };
 
 describe("Telegram sender runtime configuration", () => {
   it("loads both tables, stage, and KMS key", () => {
-    expect(loadTelegramSenderRuntimeConfig(environment)).toEqual(environment);
+    expect(loadTelegramSenderRuntimeConfig(environment)).toEqual({
+      ...environment,
+      MEDIA_URL_TTL_SECONDS: 300,
+    });
   });
 
   it("rejects a missing data table", () => {

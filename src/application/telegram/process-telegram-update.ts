@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 
 import { ulid } from "ulid";
 
-import type { TelegramMessageStore } from "../ports/telegram-message-store.js";
+import type { InboundImageImporter } from "../ports/media.js";
+import type {
+  PersistTelegramTextMessage,
+  TelegramMessageStore,
+} from "../ports/telegram-message-store.js";
 import type { TelegramInboundEnvelope } from "../../contracts/queues/telegram-inbound.contract.js";
 import type { TelegramMessage } from "../../contracts/providers/telegram.contract.js";
 
@@ -12,8 +16,10 @@ export interface ProcessTelegramUpdateResult {
 
 export class ProcessTelegramUpdate {
   readonly #messages: TelegramMessageStore;
+  readonly #media: InboundImageImporter | undefined;
 
-  public constructor(messages: TelegramMessageStore) {
+  public constructor(messages: TelegramMessageStore, media?: InboundImageImporter) {
+    this.#media = media;
     this.#messages = messages;
   }
 
@@ -23,21 +29,28 @@ export class ProcessTelegramUpdate {
     const applicationId = required(envelope.applicationId, "applicationId");
     const message = resolveMessage(envelope.payload.update);
 
-    if (message?.text === undefined) {
+    if (message === undefined || (message.text === undefined && message.photo === undefined)) {
       return {
         result: "IGNORED",
       };
     }
+    if (
+      message.photo !== undefined &&
+      (this.#media === undefined || this.#messages.persistImageMessage === undefined)
+    ) {
+      return { result: "IGNORED" };
+    }
 
     const chatId = String(message.chat.id);
     const conversationId = deterministicConversationId(integrationId, chatId);
+    const messageId = `msg_${ulid()}`;
     const displayName =
       message.from === undefined
         ? undefined
         : [message.from.first_name, message.from.last_name]
             .filter((part): part is string => part !== undefined)
             .join(" ");
-    const result = await this.#messages.persistTextMessage({
+    const common = {
       applicationId,
       chatId,
       ...(message.chat.title === undefined ? {} : { chatTitle: message.chat.title }),
@@ -45,19 +58,53 @@ export class ProcessTelegramUpdate {
       conversationId,
       ...(displayName === undefined ? {} : { displayName }),
       integrationId,
-      messageId: `msg_${ulid()}`,
+      messageId,
       occurredAt: new Date(message.date * 1_000).toISOString(),
       providerMessageId: String(message.message_id),
       ...(message.from === undefined ? {} : { senderUserId: String(message.from.id) }),
       tenantId,
-      text: message.text,
       updateId: String(envelope.payload.update.update_id),
       ...(message.from?.username === undefined ? {} : { username: message.from.username }),
-    });
+    };
+    let result: "CREATED" | "DUPLICATE";
+    if (message.photo === undefined) {
+      if (message.text === undefined) return { result: "IGNORED" };
+      result = await this.#messages.persistTextMessage({ ...common, text: message.text });
+    } else {
+      const largestPhoto = message.photo.at(-1);
+      if (largestPhoto === undefined) return { result: "IGNORED" };
+      result = await this.#persistImage({
+        common,
+        fileId: largestPhoto.file_id,
+        ...(message.caption === undefined ? {} : { caption: message.caption }),
+      });
+    }
 
     return {
       result,
     };
+  }
+
+  async #persistImage(input: {
+    caption?: string;
+    common: Omit<PersistTelegramTextMessage, "text">;
+    fileId: string;
+  }): Promise<"CREATED" | "DUPLICATE"> {
+    if (this.#media === undefined || this.#messages.persistImageMessage === undefined) {
+      throw new Error("Telegram image processing is not configured.");
+    }
+    const media = await this.#media.importTelegramImage({
+      applicationId: input.common.applicationId,
+      fileId: input.fileId,
+      integrationId: input.common.integrationId,
+      messageId: input.common.messageId,
+      tenantId: input.common.tenantId,
+    });
+    return this.#messages.persistImageMessage({
+      ...input.common,
+      ...(input.caption === undefined ? {} : { caption: input.caption }),
+      media,
+    });
   }
 }
 

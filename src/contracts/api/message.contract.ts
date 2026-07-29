@@ -25,10 +25,33 @@ export const mediaContentSchema = z
     media: z
       .object({
         caption: z.string().max(1_024).optional(),
-        mediaId: z.string().trim().min(1).max(120),
+        mediaId: z.string().trim().min(1).max(1_024).optional(),
+        text: z.string().min(1).max(1_024).optional(),
+        url: z
+          .url()
+          .refine((value) => value.startsWith("https://"), {
+            message: "Only HTTPS media URLs are accepted.",
+          })
+          .optional(),
       })
-      .strict(),
-    type: z.enum(["AUDIO", "DOCUMENT", "IMAGE", "VIDEO"]),
+      .strict()
+      .superRefine((media, context) => {
+        if (Number(media.mediaId !== undefined) + Number(media.url !== undefined) !== 1) {
+          context.addIssue({
+            code: "custom",
+            message: "Exactly one of mediaId or url is required.",
+            path: ["mediaId"],
+          });
+        }
+        if (media.caption !== undefined && media.text !== undefined) {
+          context.addIssue({
+            code: "custom",
+            message: "Use either text or caption, not both.",
+            path: ["text"],
+          });
+        }
+      }),
+    type: z.literal("IMAGE"),
   })
   .strict();
 

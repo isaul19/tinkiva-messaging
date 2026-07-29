@@ -6,6 +6,7 @@ import { loadPrivateApiRuntimeConfig } from "../../../src/shared/config/private-
 const environment = {
   CONTROL_TABLE: "messaging-control-test",
   DATA_TABLE: "messaging-data-test",
+  MEDIA_BUCKET: "media-test",
   PROVIDER_CREDENTIALS_KEY_ARN: "arn:aws:kms:us-east-1:123:key/test",
   REALTIME_TICKET_TTL_SECONDS: "60",
   REALTIME_WEBSOCKET_URL: "wss://realtime.example/test",
@@ -21,6 +22,7 @@ describe("private API runtime configuration", () => {
   it("loads Telegram and WhatsApp onboarding and outbound settings", () => {
     expect(loadPrivateApiRuntimeConfig(environment)).toEqual({
       ...environment,
+      MEDIA_URL_TTL_SECONDS: 300,
       REALTIME_TICKET_TTL_SECONDS: 60,
     });
   });

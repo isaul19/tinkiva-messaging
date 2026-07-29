@@ -36,6 +36,11 @@ Resources:
                     - Arn
               - Effect: Allow
                 Action:
+                  - s3:GetObject
+                Resource:
+                  Fn::Sub: ${MessagingMediaBucket.Arn}/tenants/*
+              - Effect: Allow
+                Action:
                   - sqs:SendMessage
                 Resource:
                   Fn::GetAtt:
@@ -91,6 +96,11 @@ Resources:
                   - Fn::GetAtt:
                       - MessagingDataTable
                       - Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  Fn::Sub: ${MessagingMediaBucket.Arn}/tenants/*
               - Effect: Allow
                 Action:
                   - kms:Decrypt

@@ -7,6 +7,7 @@ import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { buildConversationIndexKeys } from "./conversation-index.js";
 
 import type {
+  PersistTelegramImageMessage,
   PersistTelegramTextMessage,
   TelegramMessageStore,
 } from "../../application/ports/telegram-message-store.js";
@@ -24,6 +25,18 @@ export class DynamoTelegramMessageStore implements TelegramMessageStore {
 
   public async persistTextMessage(
     input: PersistTelegramTextMessage,
+  ): Promise<"CREATED" | "DUPLICATE"> {
+    return this.#persistMessage(input);
+  }
+
+  public async persistImageMessage(
+    input: PersistTelegramImageMessage,
+  ): Promise<"CREATED" | "DUPLICATE"> {
+    return this.#persistMessage(input);
+  }
+
+  async #persistMessage(
+    input: PersistTelegramTextMessage | PersistTelegramImageMessage,
   ): Promise<"CREATED" | "DUPLICATE"> {
     const identityId = deterministicIdentityId(input.integrationId, input.chatId);
     const messageSortKey = `MESSAGE#${input.occurredAt}#${input.messageId}`;
@@ -158,8 +171,13 @@ export class DynamoTelegramMessageStore implements TelegramMessageStore {
                   senderUserId: input.senderUserId,
                   status: "RECEIVED",
                   tenantId: input.tenantId,
-                  text: input.text,
-                  type: "TEXT",
+                  ...("media" in input
+                    ? {
+                        ...(input.caption === undefined ? {} : { caption: input.caption }),
+                        media: input.media,
+                        type: "IMAGE",
+                      }
+                    : { text: input.text, type: "TEXT" }),
                 },
                 TableName: this.#dataTable,
               },

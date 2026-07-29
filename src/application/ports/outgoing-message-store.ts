@@ -1,3 +1,13 @@
+import type { MediaReference } from "./media.js";
+
+export type StoredOutgoingContent =
+  | { text: string; type: "TEXT" }
+  | {
+      caption?: string;
+      media: MediaReference;
+      type: "IMAGE";
+    };
+
 export interface TelegramDestination {
   chatId: string;
   conversationId: string;
@@ -27,7 +37,7 @@ export interface ReserveTelegramMessageInput {
   occurredAt: string;
   requestHash: string;
   tenantId: string;
-  text: string;
+  content: StoredOutgoingContent;
 }
 
 export interface ReservedTelegramMessage {

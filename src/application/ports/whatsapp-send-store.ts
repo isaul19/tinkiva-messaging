@@ -1,3 +1,5 @@
+import type { StoredOutgoingContent } from "./outgoing-message-store.js";
+
 export interface AcquireWhatsappSendInput {
   applicationId: string;
   integrationId: string;
@@ -13,9 +15,10 @@ export type AcquiredWhatsappSend =
       graphApiVersion: string;
       messageSortKey: string;
       phoneNumberId: string;
+      providerMediaId?: string;
       recipientId: string;
       status: "CLAIMED";
-      text: string;
+      content: StoredOutgoingContent;
     };
 
 export interface WhatsappSendStore {
@@ -38,5 +41,10 @@ export interface WhatsappSendStore {
     conversationId: string;
     messageSortKey: string;
     releasedAt: string;
+  }): Promise<void>;
+  saveProviderMediaId(input: {
+    conversationId: string;
+    messageSortKey: string;
+    providerMediaId: string;
   }): Promise<void>;
 }

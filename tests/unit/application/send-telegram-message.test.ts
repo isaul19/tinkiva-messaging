@@ -30,11 +30,11 @@ const envelope: TelegramOutboundEnvelope = {
 
 const claimed = {
   chatId: "123",
+  content: { text: "Hola", type: "TEXT" as const },
   conversationId: "conv_demo",
   messageSortKey: "MESSAGE#date#msg_demo",
   credentialRef: "pc_demo",
   status: "CLAIMED" as const,
-  text: "Hola",
 };
 
 const createDependencies = () => {

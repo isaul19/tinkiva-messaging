@@ -1,13 +1,13 @@
 import { z } from "zod";
 
-import { textContentSchema } from "../api/message.contract.js";
+import { messageContentSchema } from "../api/message.contract.js";
 import { conversationIdSchema, messageIdSchema } from "../shared/identifiers.js";
 import { createQueueEnvelopeSchema } from "./queue-envelope.contract.js";
 
 export const telegramOutboundPayloadSchema = z
   .object({
     chatId: z.string().regex(/^-?\d+$/),
-    content: textContentSchema,
+    content: messageContentSchema,
     conversationId: conversationIdSchema,
     messageId: messageIdSchema,
   })

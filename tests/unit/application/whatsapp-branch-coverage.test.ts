@@ -52,6 +52,7 @@ describe("WhatsApp optional and terminal branches", () => {
       markFailed: vi.fn(),
       markSent: vi.fn(),
       release: vi.fn(),
+      saveProviderMediaId: vi.fn(),
     };
     const credentials = { get: vi.fn() };
     const api = { sendText: vi.fn() };

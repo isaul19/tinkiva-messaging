@@ -1216,6 +1216,71 @@ type RecipientType = "WHATSAPP_BSUID" | "WHATSAPP_PHONE" | "TELEGRAM_CHAT_ID";
 
 El username no será un destino técnico estable.
 
+### 12.3.1 Enviar imágenes
+
+La API acepta una URL HTTPS pública y un texto opcional. Copia la imagen al bucket privado antes de
+encolarla y usa `text` como caption nativo tanto en WhatsApp como en Telegram:
+
+```json
+{
+  "tenantId": "tenant_01",
+  "integrationId": "int_01",
+  "conversationId": "conv_01",
+  "content": {
+    "type": "IMAGE",
+    "media": {
+      "url": "https://cdn.example.com/promocion.jpg",
+      "text": "POLO PRUEBA"
+    }
+  }
+}
+```
+
+WhatsApp presenta ese texto debajo de la imagen dentro de la misma burbuja. Telegram lo presenta
+como caption de la foto. El frontend utiliza el mismo campo `text` sin importar el proveedor.
+`caption` continúa aceptado como alias retrocompatible de `text`, pero no se pueden enviar ambos.
+
+También se puede reutilizar una imagen ya almacenada pasando en `mediaId` la clave `tenants/...`
+retornada por el gateway. Se debe enviar exactamente uno de `url` o `mediaId`.
+
+Para WhatsApp, las imágenes deben ser JPEG o PNG y no superar 5 MB. El sender lee y valida el
+binario desde la copia canónica almacenada en S3, lo sube al Media API de Meta, persiste el Media ID
+devuelto para reutilizarlo en reintentos y finalmente envía `image.id` junto con el caption.
+Telegram genera una URL prefirmada temporal al momento de procesar el mensaje.
+
+### 12.3.2 Negrita y emojis
+
+Los textos y captions aceptan la convención unificada `**texto en negrita**` para WhatsApp y
+Telegram. El gateway la convierte al formato nativo de cada proveedor; el frontend no debe cambiar
+la sintaxis según la integración. Los pares incompletos o vacíos de `**` se envían literalmente.
+
+Los emojis Unicode se pueden combinar con el formato:
+
+```json
+{
+  "content": {
+    "type": "TEXT",
+    "text": {
+      "body": "🔵 **PROMOCIÓN**\n🟢 Producto disponible"
+    }
+  }
+}
+```
+
+La misma convención funciona en el caption de una imagen:
+
+```json
+{
+  "content": {
+    "type": "IMAGE",
+    "media": {
+      "url": "https://cdn.example.com/promocion.jpg",
+      "text": "🔵 **POLO PRUEBA**"
+    }
+  }
+}
+```
+
 ### 12.4 Listar mensajes
 
 ```http

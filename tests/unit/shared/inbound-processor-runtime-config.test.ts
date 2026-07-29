@@ -9,10 +9,17 @@ describe("inbound processor runtime configuration", () => {
       loadInboundProcessorRuntimeConfig({
         CONTROL_TABLE: "messaging-control-test",
         DATA_TABLE: "messaging-data-test",
+        MEDIA_BUCKET: "media-test",
+        PROVIDER_CREDENTIALS_KEY_ARN: "arn:aws:kms:us-east-1:123:key/test",
+        STAGE: "test",
       }),
     ).toEqual({
       CONTROL_TABLE: "messaging-control-test",
       DATA_TABLE: "messaging-data-test",
+      MEDIA_BUCKET: "media-test",
+      MEDIA_URL_TTL_SECONDS: 300,
+      PROVIDER_CREDENTIALS_KEY_ARN: "arn:aws:kms:us-east-1:123:key/test",
+      STAGE: "test",
     });
   });
 

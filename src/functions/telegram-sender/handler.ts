@@ -3,9 +3,10 @@ import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 
 import { SendTelegramMessage } from "../../application/telegram/send-telegram-message.js";
 import { telegramOutboundEnvelopeSchema } from "../../contracts/queues/telegram-outbound.contract.js";
-import { dynamoDocumentClient, kmsClient } from "../../infrastructure/aws/clients.js";
+import { dynamoDocumentClient, kmsClient, s3Client } from "../../infrastructure/aws/clients.js";
 import { DynamoTelegramSendStore } from "../../infrastructure/dynamodb/dynamo-telegram-send-store.js";
 import { KmsDynamoTelegramCredentialVault } from "../../infrastructure/dynamodb/kms-dynamo-telegram-credential-vault.js";
+import { S3MediaStore } from "../../infrastructure/s3/s3-media-store.js";
 import { TelegramMessageApiClient } from "../../infrastructure/telegram/telegram-message-api-client.js";
 import { loadTelegramSenderRuntimeConfig } from "../../shared/config/telegram-sender-runtime-config.js";
 
@@ -51,11 +52,16 @@ const credentialVault = new KmsDynamoTelegramCredentialVault(dynamoDocumentClien
   stage: config.STAGE,
   tableName: config.CONTROL_TABLE,
 });
+const mediaStore = new S3MediaStore(s3Client, {
+  bucket: config.MEDIA_BUCKET,
+  urlTtlSeconds: config.MEDIA_URL_TTL_SECONDS,
+});
 
 export const main = createTelegramSenderHandler({
   sendTelegramMessage: new SendTelegramMessage(
     store,
     credentialVault,
     new TelegramMessageApiClient(),
+    mediaStore,
   ),
 });

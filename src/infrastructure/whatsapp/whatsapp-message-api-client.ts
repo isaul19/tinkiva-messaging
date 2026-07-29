@@ -5,6 +5,7 @@ import type {
   WhatsappSendTextResult,
 } from "../../application/ports/whatsapp-message-api.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
+import { toWhatsappBoldMarkup } from "../../shared/text/bold-markup.js";
 
 const sendResponseSchema = z.looseObject({
   messages: z
@@ -17,11 +18,89 @@ const sendResponseSchema = z.looseObject({
   messaging_product: z.literal("whatsapp"),
 });
 
+const uploadResponseSchema = z.looseObject({
+  id: z.string().min(1),
+});
+
 export class WhatsappMessageApiClient implements WhatsappMessageApi {
   readonly #fetch: typeof globalThis.fetch;
 
   public constructor(fetchImplementation: typeof globalThis.fetch = globalThis.fetch) {
     this.#fetch = (input, init) => fetchImplementation(input, init);
+  }
+
+  public sendImage(input: {
+    accessToken: string;
+    caption?: string;
+    graphApiVersion: string;
+    mediaId: string;
+    phoneNumberId: string;
+    recipientId: string;
+  }): Promise<WhatsappSendTextResult> {
+    return this.#send(input, {
+      image: {
+        ...(input.caption === undefined ? {} : { caption: toWhatsappBoldMarkup(input.caption) }),
+        id: input.mediaId,
+      },
+      type: "image",
+    });
+  }
+
+  public async uploadImage(input: {
+    accessToken: string;
+    bytes: Uint8Array;
+    graphApiVersion: string;
+    mimeType: "image/jpeg" | "image/png";
+    phoneNumberId: string;
+  }): Promise<{ providerMediaId: string }> {
+    try {
+      const form = new FormData();
+      const filename = input.mimeType === "image/png" ? "image.png" : "image.jpg";
+      form.append("messaging_product", "whatsapp");
+      form.append(
+        "file",
+        new Blob([new Uint8Array(input.bytes)], { type: input.mimeType }),
+        filename,
+      );
+      const response = await this.#fetch(
+        `https://graph.facebook.com/${input.graphApiVersion}/${encodeURIComponent(input.phoneNumberId)}/media`,
+        {
+          body: form,
+          headers: {
+            authorization: `Bearer ${input.accessToken}`,
+          },
+          method: "POST",
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+      const body: unknown = await response.json();
+      const parsed = uploadResponseSchema.safeParse(body);
+
+      if (!response.ok || !parsed.success) {
+        if ([401, 403].includes(response.status)) {
+          throw new ApplicationError(
+            "PROVIDER_CREDENTIAL_INVALID",
+            "Meta rejected the WhatsApp access token.",
+            400,
+          );
+        }
+        if (response.status === 400) {
+          throw new ApplicationError(
+            "MEDIA_INVALID",
+            "Meta rejected the WhatsApp image upload.",
+            422,
+          );
+        }
+        throw providerUnavailableError();
+      }
+
+      return { providerMediaId: parsed.data.id };
+    } catch (error) {
+      if (error instanceof ApplicationError) {
+        throw error;
+      }
+      throw providerUnavailableError();
+    }
   }
 
   public async sendText(input: {
@@ -31,6 +110,24 @@ export class WhatsappMessageApiClient implements WhatsappMessageApi {
     recipientId: string;
     text: string;
   }): Promise<WhatsappSendTextResult> {
+    return this.#send(input, {
+      text: {
+        body: toWhatsappBoldMarkup(input.text),
+        preview_url: false,
+      },
+      type: "text",
+    });
+  }
+
+  async #send(
+    input: {
+      accessToken: string;
+      graphApiVersion: string;
+      phoneNumberId: string;
+      recipientId: string;
+    },
+    content: Record<string, unknown>,
+  ): Promise<WhatsappSendTextResult> {
     try {
       const response = await this.#fetch(
         `https://graph.facebook.com/${input.graphApiVersion}/${encodeURIComponent(input.phoneNumberId)}/messages`,
@@ -38,12 +135,8 @@ export class WhatsappMessageApiClient implements WhatsappMessageApi {
           body: JSON.stringify({
             messaging_product: "whatsapp",
             recipient_type: "individual",
-            text: {
-              body: input.text,
-              preview_url: false,
-            },
             to: input.recipientId,
-            type: "text",
+            ...content,
           }),
           headers: {
             authorization: `Bearer ${input.accessToken}`,

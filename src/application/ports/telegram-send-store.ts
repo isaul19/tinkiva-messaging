@@ -1,3 +1,5 @@
+import type { StoredOutgoingContent } from "./outgoing-message-store.js";
+
 export interface AcquireTelegramSendInput {
   applicationId: string;
   integrationId: string;
@@ -11,7 +13,7 @@ export interface ClaimedTelegramSend {
   messageSortKey: string;
   credentialRef: string;
   status: "CLAIMED";
-  text: string;
+  content: StoredOutgoingContent;
 }
 
 export interface TerminalTelegramSend {

@@ -21,6 +21,14 @@ export const whatsappContactSchema = z.looseObject({
 export const whatsappMessageSchema = z.looseObject({
   from: z.string().min(1),
   id: z.string().min(1),
+  image: z
+    .looseObject({
+      caption: z.string().max(1_024).optional(),
+      id: z.string().min(1),
+      mime_type: z.string().min(1).optional(),
+      sha256: z.string().min(1).optional(),
+    })
+    .optional(),
   text: z
     .looseObject({
       body: z.string().min(1),

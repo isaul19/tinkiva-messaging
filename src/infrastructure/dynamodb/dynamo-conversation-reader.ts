@@ -11,6 +11,7 @@ import type {
   ConversationListItem,
   ConversationMessage,
 } from "../../contracts/api/conversation.contract.js";
+import type { MediaUrlSigner } from "../../application/ports/media.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
 import { conversationIndexPartitionKey } from "./conversation-index.js";
 
@@ -35,6 +36,7 @@ const identityRecordSchema = z.looseObject({
 });
 
 const messageRecordSchema = z.looseObject({
+  caption: z.string().max(1_024).optional(),
   conversationId: z.string().min(1),
   direction: z.enum(["INBOUND", "OUTBOUND"]),
   failureCode: z.string().min(1).optional(),
@@ -44,8 +46,17 @@ const messageRecordSchema = z.looseObject({
   provider: z.enum(["TELEGRAM", "WHATSAPP"]),
   status: z.enum(["QUEUED", "SENT", "DELIVERED", "READ", "FAILED", "RECEIVED"]),
   tenantId: z.string().min(1),
-  text: z.string(),
-  type: z.literal("TEXT"),
+  media: z
+    .object({
+      bucket: z.string().min(1),
+      key: z.string().min(1),
+      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      sizeBytes: z.number().int().positive(),
+    })
+    .optional(),
+  text: z.string().optional(),
+  type: z.enum(["IMAGE", "TEXT"]),
 });
 
 const conversationCursorSchema = z.strictObject({
@@ -64,11 +75,18 @@ export class DynamoConversationReader implements ConversationReader {
   readonly #client: DynamoDBDocumentClient;
   readonly #controlTable: string;
   readonly #dataTable: string;
+  readonly #media: MediaUrlSigner;
 
-  public constructor(client: DynamoDBDocumentClient, controlTable: string, dataTable: string) {
+  public constructor(
+    client: DynamoDBDocumentClient,
+    controlTable: string,
+    dataTable: string,
+    media: MediaUrlSigner,
+  ) {
     this.#client = client;
     this.#controlTable = controlTable;
     this.#dataTable = dataTable;
+    this.#media = media;
   }
 
   public async listConversations(input: {
@@ -164,7 +182,9 @@ export class DynamoConversationReader implements ConversationReader {
     }
 
     return {
-      items: messages.reverse().map(toConversationMessage),
+      items: await Promise.all(
+        messages.reverse().map((message) => this.#toConversationMessage(message)),
+      ),
       ...(response.LastEvaluatedKey === undefined
         ? {}
         : {
@@ -274,7 +294,9 @@ export class DynamoConversationReader implements ConversationReader {
       conversationId: conversation.conversationId,
       createdAt: conversation.createdAt,
       integrationId: conversation.integrationId,
-      ...(parsedMessage === undefined ? {} : { lastMessage: toConversationMessage(parsedMessage) }),
+      ...(parsedMessage === undefined
+        ? {}
+        : { lastMessage: await this.#toConversationMessage(parsedMessage) }),
       lastMessageAt: conversation.lastMessageAt,
       participant: {
         displayName: identity.displayName,
@@ -286,22 +308,39 @@ export class DynamoConversationReader implements ConversationReader {
       tenantId: conversation.tenantId,
     };
   }
-}
 
-const toConversationMessage = (
-  message: z.infer<typeof messageRecordSchema>,
-): ConversationMessage => ({
-  conversationId: message.conversationId,
-  direction: message.direction,
-  ...(message.failureCode === undefined ? {} : { failureCode: message.failureCode }),
-  integrationId: message.integrationId,
-  messageId: message.messageId,
-  occurredAt: message.occurredAt,
-  provider: message.provider,
-  status: message.status,
-  text: message.text,
-  type: message.type,
-});
+  async #toConversationMessage(
+    message: z.infer<typeof messageRecordSchema>,
+  ): Promise<ConversationMessage> {
+    const common = {
+      conversationId: message.conversationId,
+      direction: message.direction,
+      ...(message.failureCode === undefined ? {} : { failureCode: message.failureCode }),
+      integrationId: message.integrationId,
+      messageId: message.messageId,
+      occurredAt: message.occurredAt,
+      provider: message.provider,
+      status: message.status,
+    };
+    if (message.type === "TEXT") {
+      if (message.text === undefined) throw new Error("Text message content is missing.");
+      return { ...common, text: message.text, type: "TEXT" };
+    }
+    if (message.media === undefined) throw new Error("Image message content is missing.");
+    return {
+      ...common,
+      ...(message.caption === undefined ? {} : { caption: message.caption }),
+      media: {
+        mediaId: message.media.key,
+        mimeType: message.media.mimeType,
+        sha256: message.media.sha256,
+        sizeBytes: message.media.sizeBytes,
+        url: await this.#media.temporaryDownloadUrl(message.media),
+      },
+      type: "IMAGE",
+    };
+  }
+}
 
 const encodeCursor = (value: Record<string, string>): string =>
   Buffer.from(JSON.stringify(value), "utf8").toString("base64url");

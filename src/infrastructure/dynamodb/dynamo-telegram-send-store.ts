@@ -8,6 +8,7 @@ import type {
   TelegramSendStore,
 } from "../../application/ports/telegram-send-store.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
+import { readStoredMessageContent } from "./stored-message-content.js";
 
 export class DynamoTelegramSendStore implements TelegramSendStore {
   readonly #client: DynamoDBDocumentClient;
@@ -39,6 +40,7 @@ export class DynamoTelegramSendStore implements TelegramSendStore {
       SK: reference.messageSortKey,
     };
     const message = await this.#get(this.#dataTable, messageKey);
+    const content = readStoredMessageContent(message);
 
     if (message?.status === "SENT" || message?.status === "FAILED") {
       return { status: "TERMINAL" };
@@ -49,7 +51,7 @@ export class DynamoTelegramSendStore implements TelegramSendStore {
       message.integrationId !== input.integrationId ||
       message.messageId !== input.messageId ||
       typeof message.chatId !== "string" ||
-      typeof message.text !== "string"
+      content === undefined
     ) {
       throw new ApplicationError("MESSAGE_NOT_SENDABLE", "The queued message is invalid.", 422);
     }
@@ -131,7 +133,7 @@ export class DynamoTelegramSendStore implements TelegramSendStore {
       messageSortKey: reference.messageSortKey,
       credentialRef: providerConnection.credentialRef,
       status: "CLAIMED",
-      text: message.text,
+      content,
     };
   }
 

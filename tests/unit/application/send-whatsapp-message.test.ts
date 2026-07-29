@@ -29,17 +29,18 @@ const createDependencies = () => {
   const store = {
     acquire: vi.fn().mockResolvedValue({
       conversationId: "conv_test",
+      content: { text: "Hola", type: "TEXT" as const },
       credentialRef: "pc_test",
       graphApiVersion: "v25.0",
       messageSortKey: "MESSAGE#test",
       phoneNumberId: "778899",
       recipientId: "573001112233",
       status: "CLAIMED" as const,
-      text: "Hola",
     }),
     markFailed: vi.fn().mockResolvedValue(undefined),
     markSent: vi.fn().mockResolvedValue(undefined),
     release: vi.fn().mockResolvedValue(undefined),
+    saveProviderMediaId: vi.fn().mockResolvedValue(undefined),
   };
   const credentials = {
     get: vi.fn().mockResolvedValue({

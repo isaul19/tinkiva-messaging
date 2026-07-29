@@ -1,12 +1,12 @@
 import { z } from "zod";
 
-import { textContentSchema } from "../api/message.contract.js";
+import { messageContentSchema } from "../api/message.contract.js";
 import { conversationIdSchema, messageIdSchema } from "../shared/identifiers.js";
 import { createQueueEnvelopeSchema } from "./queue-envelope.contract.js";
 
 export const whatsappOutboundPayloadSchema = z
   .object({
-    content: textContentSchema,
+    content: messageContentSchema,
     conversationId: conversationIdSchema,
     messageId: messageIdSchema,
     recipientId: z.string().min(1).max(255),

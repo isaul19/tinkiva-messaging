@@ -139,6 +139,9 @@ functions:
         Ref: MessagingControlTable
       DATA_TABLE:
         Ref: MessagingDataTable
+      MEDIA_BUCKET:
+        Ref: MessagingMediaBucket
+      MEDIA_URL_TTL_SECONDS: "300"
       REALTIME_TICKET_TTL_SECONDS: "60"
       REALTIME_WEBSOCKET_URL:
         Fn::Join:
@@ -291,6 +294,14 @@ functions:
         Ref: MessagingControlTable
       DATA_TABLE:
         Ref: MessagingDataTable
+      MEDIA_BUCKET:
+        Ref: MessagingMediaBucket
+      MEDIA_URL_TTL_SECONDS: "300"
+      PROVIDER_CREDENTIALS_KEY_ARN:
+        Fn::GetAtt:
+          - ProviderCredentialsKey
+          - Arn
+      STAGE: ${sls:stage}
     events:
       - sqs:
           arn:
@@ -312,6 +323,9 @@ functions:
     environment:
       APP_EVENTS_QUEUE_URL:
         Ref: AppEventsQueue
+      MEDIA_BUCKET:
+        Ref: MessagingMediaBucket
+      MEDIA_URL_TTL_SECONDS: "300"
     events:
       - stream:
           type: dynamodb
@@ -396,6 +410,9 @@ functions:
         Ref: MessagingControlTable
       DATA_TABLE:
         Ref: MessagingDataTable
+      MEDIA_BUCKET:
+        Ref: MessagingMediaBucket
+      MEDIA_URL_TTL_SECONDS: "300"
       PROVIDER_CREDENTIALS_KEY_ARN:
         Fn::GetAtt:
           - ProviderCredentialsKey
@@ -411,7 +428,7 @@ functions:
 
   whatsappSender:
     handler: src/functions/whatsapp-sender/handler.main
-    description: Sends queued WhatsApp text messages and persists provider status.
+    description: Sends queued WhatsApp messages and persists provider status.
     timeout: 30
     role:
       Fn::GetAtt:
@@ -422,6 +439,9 @@ functions:
         Ref: MessagingControlTable
       DATA_TABLE:
         Ref: MessagingDataTable
+      MEDIA_BUCKET:
+        Ref: MessagingMediaBucket
+      MEDIA_URL_TTL_SECONDS: "900"
       PROVIDER_CREDENTIALS_KEY_ARN:
         Fn::GetAtt:
           - ProviderCredentialsKey

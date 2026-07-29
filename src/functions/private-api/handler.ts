@@ -36,7 +36,7 @@ import {
   integrationIdSchema,
   tenantIdSchema,
 } from "../../contracts/shared/identifiers.js";
-import { dynamoDocumentClient, kmsClient } from "../../infrastructure/aws/clients.js";
+import { dynamoDocumentClient, kmsClient, s3Client } from "../../infrastructure/aws/clients.js";
 import { DynamoConversationReader } from "../../infrastructure/dynamodb/dynamo-conversation-reader.js";
 import { DynamoConversationStore } from "../../infrastructure/dynamodb/dynamo-conversation-store.js";
 import { DynamoMessageIntegrationReader } from "../../infrastructure/dynamodb/dynamo-message-integration-reader.js";
@@ -53,6 +53,7 @@ import { DynamoWhatsappIntegrationStore } from "../../infrastructure/dynamodb/dy
 import { DynamoWhatsappOutgoingMessageStore } from "../../infrastructure/dynamodb/dynamo-whatsapp-outgoing-message-store.js";
 import { SqsTelegramOutboundPublisher } from "../../infrastructure/sqs/sqs-telegram-outbound-publisher.js";
 import { SqsWhatsappOutboundPublisher } from "../../infrastructure/sqs/sqs-whatsapp-outbound-publisher.js";
+import { S3MediaStore } from "../../infrastructure/s3/s3-media-store.js";
 import { TelegramBotApiClient } from "../../infrastructure/telegram/telegram-bot-api-client.js";
 import { WhatsappManagementApiClient } from "../../infrastructure/whatsapp/whatsapp-management-api-client.js";
 import { loadPrivateApiRuntimeConfig } from "../../shared/config/private-api-runtime-config.js";
@@ -391,10 +392,15 @@ const whatsappIntegrationAdminReader = new DynamoWhatsappIntegrationAdminReader(
   dynamoDocumentClient,
   config.CONTROL_TABLE,
 );
+const mediaStore = new S3MediaStore(s3Client, {
+  bucket: config.MEDIA_BUCKET,
+  urlTtlSeconds: config.MEDIA_URL_TTL_SECONDS,
+});
 const conversationReader = new DynamoConversationReader(
   dynamoDocumentClient,
   config.CONTROL_TABLE,
   config.DATA_TABLE,
+  mediaStore,
 );
 const conversationStore = new DynamoConversationStore(
   dynamoDocumentClient,
@@ -442,10 +448,12 @@ const registerWhatsappIntegration = new RegisterWhatsappIntegration(
 const queueTelegramMessage = new QueueTelegramMessage(
   outgoingMessageStore,
   new SqsTelegramOutboundPublisher(sqsClient, config.TELEGRAM_OUTBOUND_QUEUE_URL),
+  mediaStore,
 );
 const queueWhatsappMessage = new QueueWhatsappMessage(
   whatsappOutgoingMessageStore,
   new SqsWhatsappOutboundPublisher(sqsClient, config.WHATSAPP_OUTBOUND_QUEUE_URL),
+  mediaStore,
 );
 
 export const main = createPrivateApiHandler({

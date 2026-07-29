@@ -1,3 +1,4 @@
+import type { MediaBinaryReader } from "../ports/media.js";
 import type { WhatsappCredentialReader } from "../ports/whatsapp-credential-vault.js";
 import type { WhatsappMessageApi } from "../ports/whatsapp-message-api.js";
 import type { WhatsappSendStore } from "../ports/whatsapp-send-store.js";
@@ -12,15 +13,18 @@ export class SendWhatsappMessage {
   readonly #api: WhatsappMessageApi;
   readonly #credentials: WhatsappCredentialReader;
   readonly #store: WhatsappSendStore;
+  readonly #media: MediaBinaryReader | undefined;
 
   public constructor(
     store: WhatsappSendStore,
     credentials: WhatsappCredentialReader,
     api: WhatsappMessageApi,
+    media?: MediaBinaryReader,
   ) {
     this.#api = api;
     this.#credentials = credentials;
     this.#store = store;
+    this.#media = media;
   }
 
   public async execute(envelope: WhatsappOutboundEnvelope): Promise<SendWhatsappMessageResult> {
@@ -40,13 +44,16 @@ export class SendWhatsappMessage {
 
     try {
       const credential = await this.#credentials.get(claimed.credentialRef);
-      const result = await this.#api.sendText({
-        accessToken: credential.accessToken,
-        graphApiVersion: claimed.graphApiVersion,
-        phoneNumberId: claimed.phoneNumberId,
-        recipientId: claimed.recipientId,
-        text: claimed.text,
-      });
+      const result =
+        claimed.content.type === "TEXT"
+          ? await this.#api.sendText({
+              accessToken: credential.accessToken,
+              graphApiVersion: claimed.graphApiVersion,
+              phoneNumberId: claimed.phoneNumberId,
+              recipientId: claimed.recipientId,
+              text: claimed.content.text,
+            })
+          : await this.#sendImage(credential.accessToken, claimed);
       await this.#store.markSent({
         conversationId: claimed.conversationId,
         integrationId,
@@ -77,6 +84,56 @@ export class SendWhatsappMessage {
       throw error;
     }
   }
+
+  async #sendImage(
+    accessToken: string,
+    claimed: Extract<Awaited<ReturnType<WhatsappSendStore["acquire"]>>, { status: "CLAIMED" }>,
+  ): Promise<{ providerMessageId: string }> {
+    if (claimed.content.type !== "IMAGE" || this.#api.sendImage === undefined) {
+      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Image sending is not configured.", 422);
+    }
+    let providerMediaId = claimed.providerMediaId;
+    if (providerMediaId === undefined) {
+      if (this.#media === undefined || this.#api.uploadImage === undefined) {
+        throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Image sending is not configured.", 422);
+      }
+      if (
+        !isWhatsappImageMimeType(claimed.content.media.mimeType) ||
+        claimed.content.media.sizeBytes > 5 * 1024 * 1024
+      ) {
+        throw new ApplicationError(
+          "MEDIA_INVALID",
+          "WhatsApp images must be JPEG or PNG and at most 5 MB.",
+          422,
+        );
+      }
+      const image = await this.#media.readImage(claimed.content.media);
+      if (!isWhatsappImageMimeType(image.mimeType)) {
+        throw new ApplicationError("MEDIA_INVALID", "WhatsApp images must be JPEG or PNG.", 422);
+      }
+      const uploaded = await this.#api.uploadImage({
+        accessToken,
+        bytes: image.bytes,
+        graphApiVersion: claimed.graphApiVersion,
+        mimeType: image.mimeType,
+        phoneNumberId: claimed.phoneNumberId,
+      });
+      providerMediaId = uploaded.providerMediaId;
+      await this.#store.saveProviderMediaId({
+        conversationId: claimed.conversationId,
+        messageSortKey: claimed.messageSortKey,
+        providerMediaId,
+      });
+    }
+    return this.#api.sendImage({
+      accessToken,
+      ...(claimed.content.caption === undefined ? {} : { caption: claimed.content.caption }),
+      graphApiVersion: claimed.graphApiVersion,
+      mediaId: providerMediaId,
+      phoneNumberId: claimed.phoneNumberId,
+      recipientId: claimed.recipientId,
+    });
+  }
 }
 
 const required = (value: string | undefined, fieldName: string): string => {
@@ -86,3 +143,6 @@ const required = (value: string | undefined, fieldName: string): string => {
 
   return value;
 };
+
+const isWhatsappImageMimeType = (value: string): value is "image/jpeg" | "image/png" =>
+  value === "image/jpeg" || value === "image/png";

@@ -5,6 +5,7 @@ import type {
   TelegramMessageApi,
 } from "../../application/ports/telegram-message-api.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
+import { parseBoldMarkup } from "../../shared/text/bold-markup.js";
 
 const sendMessageSuccessSchema = z.looseObject({
   ok: z.literal(true),
@@ -20,15 +21,55 @@ export class TelegramMessageApiClient implements TelegramMessageApi {
     this.#fetch = (input, init) => fetchImplementation(input, init);
   }
 
+  public async sendImage(input: {
+    botToken: string;
+    caption?: string;
+    chatId: string;
+    imageUrl: string;
+  }): Promise<{ providerMessageId: string }> {
+    const caption = input.caption === undefined ? undefined : parseBoldMarkup(input.caption);
+    return this.#send(
+      input.botToken,
+      "sendPhoto",
+      {
+        ...(caption === undefined
+          ? {}
+          : {
+              caption: caption.text,
+              ...(caption.entities.length === 0 ? {} : { caption_entities: caption.entities }),
+            }),
+        chat_id: input.chatId,
+        photo: input.imageUrl,
+      },
+      "image",
+    );
+  }
+
   public async sendText(input: SendTelegramTextInput): Promise<{ providerMessageId: string }> {
+    const text = parseBoldMarkup(input.text);
+    return this.#send(
+      input.botToken,
+      "sendMessage",
+      {
+        chat_id: input.chatId,
+        ...(text.entities.length === 0 ? {} : { entities: text.entities }),
+        text: text.text,
+      },
+      "message",
+    );
+  }
+
+  async #send(
+    botToken: string,
+    method: "sendMessage" | "sendPhoto",
+    payload: Record<string, unknown>,
+    subject: string,
+  ): Promise<{ providerMessageId: string }> {
     try {
       const response = await this.#fetch(
-        `https://api.telegram.org/bot${encodeURIComponent(input.botToken)}/sendMessage`,
+        `https://api.telegram.org/bot${encodeURIComponent(botToken)}/${method}`,
         {
-          body: JSON.stringify({
-            chat_id: input.chatId,
-            text: input.text,
-          }),
+          body: JSON.stringify(payload),
           headers: {
             "content-type": "application/json",
           },
@@ -51,7 +92,7 @@ export class TelegramMessageApiClient implements TelegramMessageApi {
       if (response.status >= 400 && response.status < 500) {
         throw new ApplicationError(
           "MESSAGE_NOT_SENDABLE",
-          "Telegram rejected the message or recipient.",
+          `Telegram rejected the ${subject} or recipient.`,
           422,
         );
       }

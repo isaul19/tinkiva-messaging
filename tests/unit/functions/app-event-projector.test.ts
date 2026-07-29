@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
   process.env.APP_EVENTS_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/123/app-events.fifo";
+  process.env.MEDIA_BUCKET = "media-test";
 });
 
 import { projectRealtimeMessageEvent } from "../../../src/functions/app-event-projector/handler.js";

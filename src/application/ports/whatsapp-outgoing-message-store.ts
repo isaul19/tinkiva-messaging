@@ -1,3 +1,5 @@
+import type { StoredOutgoingContent } from "./outgoing-message-store.js";
+
 export interface WhatsappDestination {
   conversationId: string;
   createDestinationRecords: boolean;
@@ -29,7 +31,7 @@ export interface ReserveWhatsappMessageInput {
   recipientType: "WHATSAPP_BSUID" | "WHATSAPP_PHONE";
   requestHash: string;
   tenantId: string;
-  text: string;
+  content: StoredOutgoingContent;
 }
 
 export interface ReservedWhatsappMessage {

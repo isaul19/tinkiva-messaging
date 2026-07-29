@@ -27,20 +27,40 @@ export const conversationParticipantSchema = z
   })
   .strict();
 
-export const conversationMessageSchema = z
-  .object({
-    conversationId: conversationIdSchema,
-    direction: messageDirectionSchema,
-    failureCode: z.string().min(1).optional(),
-    integrationId: integrationIdSchema,
-    messageId: messageIdSchema,
-    occurredAt: z.iso.datetime(),
-    provider: providerSchema,
-    status: messageDeliveryStatusSchema,
-    text: z.string(),
-    type: z.literal("TEXT"),
-  })
-  .strict();
+const conversationMessageBaseSchema = z.object({
+  conversationId: conversationIdSchema,
+  direction: messageDirectionSchema,
+  failureCode: z.string().min(1).optional(),
+  integrationId: integrationIdSchema,
+  messageId: messageIdSchema,
+  occurredAt: z.iso.datetime(),
+  provider: providerSchema,
+  status: messageDeliveryStatusSchema,
+});
+
+export const conversationMessageSchema = z.discriminatedUnion("type", [
+  conversationMessageBaseSchema
+    .extend({
+      text: z.string(),
+      type: z.literal("TEXT"),
+    })
+    .strict(),
+  conversationMessageBaseSchema
+    .extend({
+      caption: z.string().max(1_024).optional(),
+      media: z
+        .object({
+          mediaId: z.string().min(1).max(1_024),
+          mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+          sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          sizeBytes: z.number().int().positive(),
+          url: z.url(),
+        })
+        .strict(),
+      type: z.literal("IMAGE"),
+    })
+    .strict(),
+]);
 
 export const conversationListItemSchema = z
   .object({
