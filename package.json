@@ -15,6 +15,7 @@
     "admin:configure-whatsapp-embedded-signup": "tsx src/cli/configure-whatsapp-embedded-signup.ts",
     "admin:create-application": "tsx src/cli/create-application.ts",
     "build": "tsc --project tsconfig.build.json",
+    "deploy:dev": "pnpm verify && serverless deploy --stage dev",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "infra:validate": "node scripts/validate-packaged-infrastructure.mjs && node scripts/validate-cloudformation-shape.mjs && node scripts/validate-phase2-infrastructure.mjs && node scripts/validate-phase3-infrastructure.mjs && node scripts/validate-phase4-infrastructure.mjs && node scripts/validate-realtime-infrastructure.mjs",

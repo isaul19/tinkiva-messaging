@@ -3,6 +3,7 @@ import { SQSClient } from "@aws-sdk/client-sqs";
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { z } from "zod";
 
+import { DeleteConversation } from "../../application/conversations/delete-conversation.js";
 import { ListConversationMessages } from "../../application/conversations/list-conversation-messages.js";
 import { ListConversations } from "../../application/conversations/list-conversations.js";
 import { ListTenantIntegrations } from "../../application/integrations/list-tenant-integrations.js";
@@ -37,6 +38,7 @@ import {
 } from "../../contracts/shared/identifiers.js";
 import { dynamoDocumentClient, kmsClient } from "../../infrastructure/aws/clients.js";
 import { DynamoConversationReader } from "../../infrastructure/dynamodb/dynamo-conversation-reader.js";
+import { DynamoConversationStore } from "../../infrastructure/dynamodb/dynamo-conversation-store.js";
 import { DynamoMessageIntegrationReader } from "../../infrastructure/dynamodb/dynamo-message-integration-reader.js";
 import { DynamoOutgoingMessageStore } from "../../infrastructure/dynamodb/dynamo-outgoing-message-store.js";
 import { DynamoRealtimeStore } from "../../infrastructure/dynamodb/dynamo-realtime-store.js";
@@ -57,7 +59,7 @@ import { loadPrivateApiRuntimeConfig } from "../../shared/config/private-api-run
 import { ApplicationError } from "../../shared/errors/application-error.js";
 import { resolveCorrelationId } from "../../shared/http/correlation-id.js";
 import { errorResponse } from "../../shared/http/error-response.js";
-import { jsonResponse } from "../../shared/http/json-response.js";
+import { jsonResponse, noContentResponse } from "../../shared/http/json-response.js";
 import { readHeader, readJsonBody } from "../../shared/http/request-body.js";
 
 type PrivateApiEvent = APIGatewayProxyEventV2 & {
@@ -81,6 +83,7 @@ const logger = new Logger({
 export interface PrivateApiHandlerDependencies {
   completeWhatsappEmbeddedSignup: Pick<CompleteWhatsappEmbeddedSignup, "execute">;
   createRealtimeTicket: Pick<CreateRealtimeTicket, "execute">;
+  deleteConversation: Pick<DeleteConversation, "execute">;
   ensureTenant: Pick<EnsureTenant, "execute">;
   getTenant: Pick<GetTenant, "byExternalAccount" | "byTenantId">;
   getWhatsappEmbeddedSignupConfiguration: Pick<GetWhatsappEmbeddedSignupConfiguration, "execute">;
@@ -97,6 +100,7 @@ export const createPrivateApiHandler =
   ({
     completeWhatsappEmbeddedSignup,
     createRealtimeTicket,
+    deleteConversation,
     ensureTenant,
     getWhatsappEmbeddedSignupConfiguration,
     getTenant,
@@ -166,6 +170,20 @@ export const createPrivateApiHandler =
         });
 
         return jsonResponse(200, result, correlationId);
+      }
+
+      if (event.routeKey === "DELETE /v1/tenants/{tenantId}/conversations/{conversationId}") {
+        requireScope(identity.scope, "messages:send");
+        const tenantId = tenantIdSchema.parse(event.pathParameters?.tenantId);
+        const conversationId = conversationIdSchema.parse(event.pathParameters?.conversationId);
+        await getTenant.byTenantId(identity.applicationId, tenantId);
+        await deleteConversation.execute({
+          applicationId: identity.applicationId,
+          conversationId,
+          tenantId,
+        });
+
+        return noContentResponse(correlationId);
       }
 
       if (event.routeKey === "POST /v1/tenants/{tenantId}/realtime/tickets") {
@@ -301,7 +319,14 @@ export const createPrivateApiHandler =
 
       throw new ApplicationError("TENANT_NOT_FOUND", "The requested route does not exist.", 404);
     } catch (error) {
-      if (!(error instanceof ApplicationError) && !(error instanceof z.ZodError)) {
+      if (error instanceof ApplicationError) {
+        logger.warn("Private API request rejected.", {
+          code: error.code,
+          correlationId,
+          routeKey: event.routeKey,
+          statusCode: error.statusCode,
+        });
+      } else if (!(error instanceof z.ZodError)) {
         logger.error("Unhandled private API error.", {
           correlationId,
           error,
@@ -371,6 +396,11 @@ const conversationReader = new DynamoConversationReader(
   config.CONTROL_TABLE,
   config.DATA_TABLE,
 );
+const conversationStore = new DynamoConversationStore(
+  dynamoDocumentClient,
+  config.CONTROL_TABLE,
+  config.DATA_TABLE,
+);
 const outgoingMessageStore = new DynamoOutgoingMessageStore(
   dynamoDocumentClient,
   config.CONTROL_TABLE,
@@ -432,6 +462,7 @@ export const main = createPrivateApiHandler({
     ttlSeconds: config.REALTIME_TICKET_TTL_SECONDS,
     websocketUrl: config.REALTIME_WEBSOCKET_URL,
   }),
+  deleteConversation: new DeleteConversation(conversationStore),
   ensureTenant: new EnsureTenant(tenantStore),
   getTenant: new GetTenant(tenantStore),
   getWhatsappEmbeddedSignupConfiguration: new GetWhatsappEmbeddedSignupConfiguration(

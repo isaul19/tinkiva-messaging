@@ -59,6 +59,14 @@ describe("MessagingGatewayClient conversations", () => {
           items: [conversation.lastMessage],
           tenantId: "tenant_01",
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, {
+          headers: {
+            "x-correlation-id": "cor_sdk",
+          },
+          status: 204,
+        }),
       );
     const client = new MessagingGatewayClient({
       clientId: "msgc_client",
@@ -85,14 +93,19 @@ describe("MessagingGatewayClient conversations", () => {
       items: [conversation.lastMessage],
       tenantId: "tenant_01",
     });
+    await expect(client.deleteConversation("tenant_01", "conv_01")).resolves.toBeUndefined();
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       "https://gateway.example/v1/tenants/tenant_01/conversations?integrationId=int_whatsapp&limit=20&cursor=previous-page",
     );
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
       "https://gateway.example/v1/tenants/tenant_01/conversations/conv_01/messages?limit=50",
     );
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      "https://gateway.example/v1/tenants/tenant_01/conversations/conv_01",
+    );
+    expect(fetchMock.mock.calls[3]?.[1]?.method).toBe("DELETE");
     for (const call of fetchMock.mock.calls.slice(1)) {
       expect(new Headers(call[1]?.headers).get("authorization")).toBe("Bearer token_01");
     }

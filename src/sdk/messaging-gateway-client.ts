@@ -185,6 +185,17 @@ export class MessagingGatewayClient {
     );
   }
 
+  public deleteConversation(tenantId: string, conversationId: string): Promise<void> {
+    const parsedTenantId = tenantIdSchema.parse(tenantId);
+    const parsedConversationId = conversationIdSchema.parse(conversationId);
+
+    return this.#authorizedRequest(
+      `/v1/tenants/${encodeURIComponent(parsedTenantId)}/conversations/${encodeURIComponent(parsedConversationId)}`,
+      { method: "DELETE" },
+      () => undefined,
+    );
+  }
+
   public createRealtimeTicket(tenantId: string): Promise<RealtimeTicketResponse> {
     const parsedTenantId = tenantIdSchema.parse(tenantId);
 
@@ -266,7 +277,7 @@ export class MessagingGatewayClient {
       ...request,
       headers,
     });
-    const body = await readJson(response);
+    const body = response.status === 204 ? undefined : await readJson(response);
 
     if (!response.ok) {
       throw toApiError(response.status, body);

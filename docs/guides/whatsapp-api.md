@@ -542,6 +542,21 @@ Authorization: Bearer {accessToken}
 - La primera página contiene los mensajes más recientes en orden cronológico.
 - `nextCursor` carga mensajes anteriores.
 
+### Eliminar una conversación
+
+```http
+DELETE /v1/tenants/{tenantId}/conversations/{conversationId}
+Authorization: Bearer {accessToken}
+```
+
+- Scope requerido: `messages:send`.
+- Responde `204 No Content`, incluso si la conversación ya fue eliminada.
+- Una conversación existente que no pertenece al tenant responde `404 CONVERSATION_NOT_FOUND`.
+- Elimina el metadato, los mensajes y sus referencias almacenadas en Tinkiva Messaging.
+- No solicita a WhatsApp que elimine mensajes ya entregados.
+- Un mensaje posterior para el mismo destinatario vuelve a crear una conversación sin el contexto
+  eliminado.
+
 ### Responder una conversación
 
 ```http

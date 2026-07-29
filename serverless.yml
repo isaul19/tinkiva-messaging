@@ -129,7 +129,7 @@ functions:
   privateApi:
     handler: src/functions/private-api/handler.main
     description: Application-scoped tenant, integration, and messaging API.
-    timeout: 15
+    timeout: 29
     role:
       Fn::GetAtt:
         - PrivateApiLambdaRole
@@ -213,6 +213,11 @@ functions:
       - httpApi:
           path: /v1/tenants/{tenantId}/conversations/{conversationId}/messages
           method: GET
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/tenants/{tenantId}/conversations/{conversationId}
+          method: DELETE
           authorizer:
             name: applicationAuthorizer
       - httpApi:

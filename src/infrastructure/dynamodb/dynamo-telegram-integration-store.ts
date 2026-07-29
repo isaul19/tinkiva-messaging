@@ -1,3 +1,4 @@
+import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 
@@ -5,6 +6,7 @@ import type {
   CreateTelegramIntegrationRecords,
   TelegramIntegrationStore,
 } from "../../application/ports/telegram-integration-store.js";
+import { ApplicationError } from "../../shared/errors/application-error.js";
 
 export class DynamoTelegramIntegrationStore implements TelegramIntegrationStore {
   readonly #client: DynamoDBDocumentClient;
@@ -78,17 +80,33 @@ export class DynamoTelegramIntegrationStore implements TelegramIntegrationStore 
       },
     ];
 
-    await this.#client.send(
-      new TransactWriteCommand({
-        TransactItems: records.map((Item) => ({
-          Put: {
-            ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
-            Item,
-            TableName: this.#tableName,
-          },
-        })),
-      }),
-    );
+    try {
+      await this.#client.send(
+        new TransactWriteCommand({
+          TransactItems: records.map((Item) => ({
+            Put: {
+              ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+              Item,
+              TableName: this.#tableName,
+            },
+          })),
+        }),
+      );
+    } catch (error) {
+      if (
+        error instanceof TransactionCanceledException &&
+        error.CancellationReasons?.some((reason) => reason.Code === "ConditionalCheckFailed") ===
+          true
+      ) {
+        throw new ApplicationError(
+          "PROVIDER_CONFIGURATION_INVALID",
+          "El bot de Telegram ya fue registrado.",
+          409,
+        );
+      }
+
+      throw error;
+    }
   }
 
   public async setStatus(

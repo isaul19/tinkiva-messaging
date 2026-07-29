@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { jsonResponse } from "../../../src/shared/http/json-response.js";
+import { jsonResponse, noContentResponse } from "../../../src/shared/http/json-response.js";
 
 describe("jsonResponse", () => {
   it("sets safe response headers without leaking infrastructure details", () => {
@@ -16,6 +16,18 @@ describe("jsonResponse", () => {
       },
       isBase64Encoded: false,
       statusCode: 200,
+    });
+  });
+
+  it("returns an empty 204 response with correlation and security headers", () => {
+    expect(noContentResponse("cor_02")).toEqual({
+      headers: {
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "x-correlation-id": "cor_02",
+      },
+      isBase64Encoded: false,
+      statusCode: 204,
     });
   });
 });

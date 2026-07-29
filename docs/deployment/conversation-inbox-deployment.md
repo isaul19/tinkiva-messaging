@@ -108,7 +108,8 @@ necesitó actualización.
 
 ## Endpoints privados
 
-Todos requieren un JWT del gateway con scope `messages:read`.
+Todos requieren un JWT del gateway. Las consultas usan `messages:read`; el borrado usa
+`messages:send`.
 
 ### Listar conversaciones
 
@@ -162,6 +163,18 @@ Authorization: Bearer {accessToken}
 
 Cada página se devuelve en orden cronológico. La primera consulta obtiene los mensajes más
 recientes; `nextCursor` permite cargar páginas anteriores.
+
+### Eliminar una conversación
+
+```http
+DELETE /v1/tenants/{tenantId}/conversations/{conversationId}
+Authorization: Bearer {accessToken}
+```
+
+La operación es idempotente y responde `204 No Content`. Elimina únicamente el metadato, los
+mensajes y las referencias locales de Tinkiva Messaging. No intenta eliminar mensajes ya entregados
+en WhatsApp. El siguiente mensaje para el mismo destinatario crea de nuevo la conversación sin el
+historial eliminado.
 
 ### Responder
 
