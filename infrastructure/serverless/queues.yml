@@ -111,6 +111,34 @@ Resources:
             - Arn
         maxReceiveCount: 5
 
+  StoragiaAutomationDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: messaging-storagia-automation-dlq-${sls:stage}.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  StoragiaAutomationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: messaging-storagia-automation-${sls:stage}.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      DeduplicationScope: messageGroup
+      FifoThroughputLimit: perMessageGroupId
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 300
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::GetAtt:
+            - StoragiaAutomationDlq
+            - Arn
+        maxReceiveCount: 5
+
   MediaDlq:
     Type: AWS::SQS::Queue
     Properties:

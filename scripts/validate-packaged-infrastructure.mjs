@@ -33,6 +33,7 @@ const queuePairs = [
   ["WhatsappOutboundQueue", "WhatsappOutboundDlq", true, 180],
   ["TelegramOutboundQueue", "TelegramOutboundDlq", true, 180],
   ["AppEventsQueue", "AppEventsDlq", true, 180],
+  ["StoragiaAutomationQueue", "StoragiaAutomationDlq", true, 300],
   ["MediaQueue", "MediaDlq", false, 360],
 ];
 
@@ -57,6 +58,29 @@ for (const [queueId, dlqId, fifo, visibilityTimeout] of queuePairs) {
   assert(Boolean(queue.Properties.FifoQueue) === fifo, `${queueId} FIFO configuration is invalid`);
   assert(Boolean(dlq.Properties.FifoQueue) === fifo, `${dlqId} FIFO configuration is invalid`);
 }
+
+const storagiaQueue = resource("StoragiaAutomationQueue", "AWS::SQS::Queue");
+const storagiaDlq = resource("StoragiaAutomationDlq", "AWS::SQS::Queue");
+assert(
+  storagiaQueue.Properties.ContentBasedDeduplication === false &&
+    storagiaDlq.Properties.ContentBasedDeduplication === false,
+  "StoragIA automation queues must use explicit deduplication IDs",
+);
+assert(
+  storagiaQueue.Properties.DeduplicationScope === "messageGroup" &&
+    storagiaQueue.Properties.FifoThroughputLimit === "perMessageGroupId",
+  "StoragIA automation queue must preserve independent conversation groups",
+);
+assert(
+  storagiaQueue.Properties.MessageRetentionPeriod === 345_600 &&
+    storagiaQueue.Properties.ReceiveMessageWaitTimeSeconds === 20,
+  "StoragIA automation queue retention or long polling is invalid",
+);
+assert(
+  storagiaQueue.Properties.RedrivePolicy.deadLetterTargetArn?.["Fn::GetAtt"]?.[0] ===
+    "StoragiaAutomationDlq",
+  "StoragIA automation queue must redrive to its dedicated DLQ",
+);
 
 const controlTable = resource("MessagingControlTable", "AWS::DynamoDB::Table");
 const dataTable = resource("MessagingDataTable", "AWS::DynamoDB::Table");
@@ -102,11 +126,27 @@ for (const alarmId of [
   "WhatsappOutboundDlqAlarm",
   "TelegramOutboundDlqAlarm",
   "AppEventsDlqAlarm",
+  "StoragiaAutomationDlqAlarm",
   "MediaDlqAlarm",
 ]) {
   const alarm = resource(alarmId, "AWS::CloudWatch::Alarm");
   assert(alarm.Properties.Threshold === 1, `${alarmId} must trigger on the first DLQ message`);
 }
+
+const storagiaAlarm = resource("StoragiaAutomationDlqAlarm", "AWS::CloudWatch::Alarm");
+assert(
+  storagiaAlarm.Properties.Namespace === "AWS/SQS" &&
+    storagiaAlarm.Properties.MetricName === "ApproximateNumberOfMessagesVisible" &&
+    storagiaAlarm.Properties.Statistic === "Maximum" &&
+    storagiaAlarm.Properties.Period === 60 &&
+    storagiaAlarm.Properties.ComparisonOperator === "GreaterThanOrEqualToThreshold" &&
+    storagiaAlarm.Properties.TreatMissingData === "notBreaching",
+  "StoragIA automation DLQ alarm configuration is invalid",
+);
+assert(
+  storagiaAlarm.Properties.AlarmActions?.[0]?.Ref === "MessagingAlarmTopic",
+  "StoragIA automation DLQ alarm must notify the messaging alarm topic",
+);
 
 const healthRole = resource("HealthLambdaRole", "AWS::IAM::Role");
 const roleStatements = healthRole.Properties.Policies.flatMap(
@@ -131,6 +171,10 @@ for (const outputId of [
   "WhatsappOutboundQueueUrl",
   "TelegramOutboundQueueUrl",
   "AppEventsQueueUrl",
+  "StoragiaAutomationQueueUrl",
+  "StoragiaAutomationQueueArn",
+  "StoragiaAutomationDlqUrl",
+  "StoragiaAutomationDlqArn",
   "MediaQueueUrl",
   "AuthPepperSecretArn",
   "JwtSigningSecretArn",

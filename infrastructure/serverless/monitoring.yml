@@ -98,6 +98,29 @@ Resources:
       AlarmActions:
         - Ref: MessagingAlarmTopic
 
+  StoragiaAutomationDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: tinkiva-messaging-storagia-automation-dlq-${sls:stage}
+      AlarmDescription: At least one StoragIA automation event is waiting in the DLQ.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: QueueName
+          Value:
+            Fn::GetAtt:
+              - StoragiaAutomationDlq
+              - QueueName
+      AlarmActions:
+        - Ref: MessagingAlarmTopic
+
   MediaDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:

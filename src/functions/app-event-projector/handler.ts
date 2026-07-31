@@ -15,6 +15,7 @@ import {
 } from "../../contracts/api/realtime.contract.js";
 import { s3Client } from "../../infrastructure/aws/clients.js";
 import { S3MediaStore } from "../../infrastructure/s3/s3-media-store.js";
+import { RoutedApplicationEventPublisher } from "../../infrastructure/sqs/routed-application-event-publisher.js";
 import { SqsApplicationEventPublisher } from "../../infrastructure/sqs/sqs-application-event-publisher.js";
 import { loadAppEventProjectorRuntimeConfig } from "../../shared/config/app-event-projector-runtime-config.js";
 
@@ -181,11 +182,19 @@ const deterministicEventId = (sourceEventId: string): string =>
   `evt_${createHash("sha256").update(sourceEventId, "utf8").digest("base64url").slice(0, 43)}`;
 
 const config = loadAppEventProjectorRuntimeConfig();
+const sqsClient = new SQSClient({});
 
 export const main = createAppEventProjectorHandler({
   media: new S3MediaStore(s3Client, {
     bucket: config.MEDIA_BUCKET,
     urlTtlSeconds: config.MEDIA_URL_TTL_SECONDS,
   }),
-  publisher: new SqsApplicationEventPublisher(new SQSClient({}), config.APP_EVENTS_QUEUE_URL),
+  publisher: new RoutedApplicationEventPublisher({
+    realtime: new SqsApplicationEventPublisher(sqsClient, config.APP_EVENTS_QUEUE_URL),
+    storagiaApplicationId: config.STORAGIA_AUTOMATION_APPLICATION_ID,
+    storagiaAutomation: new SqsApplicationEventPublisher(
+      sqsClient,
+      config.STORAGIA_AUTOMATION_QUEUE_URL,
+    ),
+  }),
 });

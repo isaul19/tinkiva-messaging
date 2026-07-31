@@ -8,7 +8,9 @@ This directory records how the gateway is designed, created, deployed, and opera
 - `architecture/`: accepted architecture decisions.
 - `deployment/`: reproducible infrastructure and deployment records.
 - `guides/`: provider endpoints, payloads, SDK usage, and operational boundaries.
-  - [WhatsApp API](./guides/whatsapp-api.md)
+- [AWS resource inventory](./aws-resources.md): every AWS resource used by the gateway, its purpose,
+  cost drivers, and review points.
+- [WhatsApp API](./guides/whatsapp-api.md)
   - [WhatsApp Embedded Signup](./guides/whatsapp-embedded-signup.md)
 - `runbooks/`: operational procedures.
 - `implementation-status.md`: implementation progress against the specification.

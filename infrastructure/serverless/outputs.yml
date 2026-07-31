@@ -33,6 +33,26 @@ Outputs:
     Description: FIFO queue for application delivery events.
     Value:
       Ref: AppEventsQueue
+  StoragiaAutomationQueueUrl:
+    Description: FIFO queue for StoragIA inbound-message automation events.
+    Value:
+      Ref: StoragiaAutomationQueue
+  StoragiaAutomationQueueArn:
+    Description: ARN of the StoragIA automation FIFO queue.
+    Value:
+      Fn::GetAtt:
+        - StoragiaAutomationQueue
+        - Arn
+  StoragiaAutomationDlqUrl:
+    Description: Dead-letter queue for StoragIA automation events.
+    Value:
+      Ref: StoragiaAutomationDlq
+  StoragiaAutomationDlqArn:
+    Description: ARN of the StoragIA automation dead-letter queue.
+    Value:
+      Fn::GetAtt:
+        - StoragiaAutomationDlq
+        - Arn
   RealtimeWebsocketUrl:
     Description: Tenant-scoped realtime WebSocket endpoint.
     Value:

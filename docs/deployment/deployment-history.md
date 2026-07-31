@@ -1,5 +1,43 @@
 # Deployment history
 
+## 2026-07-31 — StoragIA automation queue
+
+- Operator: Codex using AWS user `saul`.
+- Stage: `dev`; region: `us-east-1`; account: `160358212333`.
+- Stack: `tinkiva-messaging-gateway-dev`.
+- Final status: `UPDATE_COMPLETE`.
+- AWS update time: `2026-07-31T17:53:15.367000+00:00`.
+- StoragIA application: `app_01KYWMW9VBW6N08DH9DEMJAME4`.
+
+### Added
+
+- Dedicated `STORAGIA` M2M application and credentials secret at
+  `/tinkiva/messaging/dev/applications/storagia/client`; plaintext credentials were not printed.
+- FIFO queue `messaging-storagia-automation-dev.fifo` and its dedicated 14-day DLQ.
+- Conditional fan-out of StoragIA `message.received` events for inbound messages while preserving
+  publication to the existing realtime queue.
+- DLQ alarm connected to the existing messaging alarm SNS topic.
+- Queue URL/ARN and DLQ URL/ARN CloudFormation outputs.
+- Producer-only IAM permission for `appEventProjector`; the stack deliberately has no Lambda event
+  source mapping for the automation queue because its consumer belongs to the StoragIA backend on
+  EC2.
+
+### Verification
+
+- `pnpm verify`: 66 test files and 159 tests passed.
+- Coverage: 93.03% statements, 81.65% branches, 94.90% functions, 93.56% lines.
+- `pnpm package`: 118 logical resources, 12 SQS queues, 6 CloudWatch alarms, and all infrastructure
+  validators passed using the real StoragIA application ID.
+- Live gateway health returned `200` with `status=ok`.
+- The queue is FIFO with explicit deduplication, per-message-group throughput, 300-second
+  visibility, four-day retention, 20-second long polling, and redrive after five receives.
+- The DLQ is FIFO with 14-day retention; its CloudWatch alarm was `OK`.
+- Lambda configuration contains the dedicated application ID and deployed queue URL.
+- AWS returned no event source mappings whose ARN contains `messaging-storagia-automation`.
+
+The StoragIA EC2 deployment must use the new credentials secret and consume the queue with long
+polling before automation messages are processed. That consumer deployment is outside this stack.
+
 ## 2026-07-26 — WhatsApp Embedded Signup platform activation
 
 - Operator: Codex using AWS user `saul`.

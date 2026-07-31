@@ -168,6 +168,7 @@ Tipos posibles: `message.received`, `message.queued`, `message.sent`, `message.d
 Validar:
 
 ```powershell
+$env:STORAGIA_AUTOMATION_APPLICATION_ID = "app_<real-storagia-application-id>"
 pnpm verify
 pnpm package
 ```
@@ -175,8 +176,12 @@ pnpm package
 Desplegar o actualizar:
 
 ```powershell
+$env:STORAGIA_AUTOMATION_APPLICATION_ID = "app_<real-storagia-application-id>"
 pnpm exec serverless deploy --stage dev
 ```
+
+El valor debe ser el `applicationId` real del cliente M2M de StoragIA. No usar el `clientId`, el
+código de cuenta ni un placeholder al desplegar.
 
 Consultar outputs:
 
@@ -201,9 +206,10 @@ pnpm run serverless-deploy-dev
 
 ## Costos y límites
 
-API Gateway WebSocket cobra por conexiones-minuto y mensajes. Las tres Lambdas y el stream son
-serverless y pagan por uso. Al reutilizar DynamoDB y SQS se evitan costos mínimos de recursos
-adicionales; el tráfico, lecturas, escrituras e invocaciones sí se facturan normalmente.
+API Gateway WebSocket cobra por conexiones-minuto y mensajes. Las tres Lambdas, el stream y las
+colas SQS son serverless y pagan por uso. La cola FIFO exclusiva de automatización y su DLQ no
+tienen un consumidor Lambda en este stack; el tráfico, lecturas, escrituras e invocaciones sí se
+facturan normalmente.
 
 Una conexión expira a las 125 minutos, que coincide con el máximo de API Gateway WebSocket. El
 frontend renueva el ticket y reconecta con backoff exponencial.

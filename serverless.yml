@@ -326,6 +326,9 @@ functions:
       MEDIA_BUCKET:
         Ref: MessagingMediaBucket
       MEDIA_URL_TTL_SECONDS: "300"
+      STORAGIA_AUTOMATION_APPLICATION_ID: ${env:STORAGIA_AUTOMATION_APPLICATION_ID}
+      STORAGIA_AUTOMATION_QUEUE_URL:
+        Ref: StoragiaAutomationQueue
     events:
       - stream:
           type: dynamodb

@@ -42,9 +42,12 @@ Resources:
                 Action:
                   - sqs:SendMessage
                 Resource:
-                  Fn::GetAtt:
-                    - AppEventsQueue
-                    - Arn
+                  - Fn::GetAtt:
+                      - AppEventsQueue
+                      - Arn
+                  - Fn::GetAtt:
+                      - StoragiaAutomationQueue
+                      - Arn
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup

@@ -59,6 +59,20 @@ for (const functionId of [
   resource(functionId, "AWS::Lambda::Function");
 }
 
+const projectorFunction = resource("AppEventProjectorLambdaFunction", "AWS::Lambda::Function");
+assert(
+  typeof projectorFunction.Properties.Environment?.Variables?.STORAGIA_AUTOMATION_APPLICATION_ID ===
+    "string" &&
+    projectorFunction.Properties.Environment.Variables.STORAGIA_AUTOMATION_APPLICATION_ID.length >
+      0,
+  "App event projector must receive the StoragIA application ID",
+);
+assert(
+  projectorFunction.Properties.Environment?.Variables?.STORAGIA_AUTOMATION_QUEUE_URL?.Ref ===
+    "StoragiaAutomationQueue",
+  "App event projector must receive the StoragIA automation queue URL",
+);
+
 const dataTable = resource("MessagingDataTable", "AWS::DynamoDB::Table");
 assert(
   dataTable.Properties.StreamSpecification?.StreamViewType === "NEW_AND_OLD_IMAGES",
@@ -100,6 +114,35 @@ for (const requiredAction of [
     `Projector role must allow ${requiredAction}`,
   );
 }
+
+const projectorQueueStatement = projectorRole.Properties.Policies.flatMap(
+  (policy) => policy.PolicyDocument.Statement,
+).find((statement) =>
+  (Array.isArray(statement.Action) ? statement.Action : [statement.Action]).includes(
+    "sqs:SendMessage",
+  ),
+);
+const projectorQueueResources = Array.isArray(projectorQueueStatement?.Resource)
+  ? projectorQueueStatement.Resource
+  : [projectorQueueStatement?.Resource];
+for (const queueId of ["AppEventsQueue", "StoragiaAutomationQueue"]) {
+  assert(
+    projectorQueueResources.some(
+      (value) => value?.["Fn::GetAtt"]?.[0] === queueId && value["Fn::GetAtt"]?.[1] === "Arn",
+    ),
+    `Projector role must publish to ${queueId}`,
+  );
+}
+
+const storagiaConsumerMapping = Object.values(resources).find(
+  (value) =>
+    value.Type === "AWS::Lambda::EventSourceMapping" &&
+    value.Properties?.EventSourceArn?.["Fn::GetAtt"]?.[0] === "StoragiaAutomationQueue",
+);
+assert(
+  storagiaConsumerMapping === undefined,
+  "StoragIA automation queue must not have a Lambda consumer in TinkivaMessaging",
+);
 
 const connectionRole = resource("RealtimeConnectionLambdaRole", "AWS::IAM::Role");
 for (const requiredAction of [
