@@ -1,5 +1,43 @@
 # Deployment history
 
+## 2026-07-31 — StoragIA tenant ownership migration
+
+- Operator: Codex using AWS user `saul`.
+- Stage: `dev`; region: `us-east-1`; account: `160358212333`.
+- Source application: `app_01KYDBQZ876JBP1E9CNXQ70CXB` (`TINKIVA_DEV`).
+- Target application: `app_01KYWMW9VBW6N08DH9DEMJAME4` (`STORAGIA`).
+- Tenant: `tenant_01KYEGH6FH0CG1XW8M26NMZDFM`.
+- External account: `cd3a8f4e-6ceb-4f34-aba5-c0b996e3013f`.
+
+### Migrated
+
+- Tenant ownership links were moved to the dedicated StoragIA application without changing the
+  tenant ID or external account ID.
+- WhatsApp integration `int_01KYG60AKPEBFEHPWXW65EJTCS` and Telegram integration
+  `int_01KYKSSKKTVC7K2ZV635JQY6HE` retained their IDs and `ACTIVE` status.
+- Provider connection, encrypted credential, webhook, WhatsApp phone-number, and WABA references
+  retained their keys; only application ownership changed.
+- Two WhatsApp conversations retained their IDs, index order, identities, and message history.
+- Thirteen message records moved to the target application. Message-reference and provider-event
+  idempotency records did not require changes because their keys do not contain an application ID.
+- Ephemeral realtime connections are deliberately excluded from ownership migration.
+
+The change was applied as one 30-item DynamoDB transaction with conditional ownership checks. A
+status-only guard in `appEventProjector` means the message ownership updates did not create new
+realtime or automation events.
+
+### Verification
+
+- Source application ownership records for the tenant: `0`.
+- Source application message records for the tenant: `0`.
+- Target application control records: `14`; target message records: `13`.
+- The target conversation GSI returned the same two WhatsApp conversation IDs.
+- The StoragIA automation queue remained empty after migration.
+- Authentication with the StoragIA Secrets Manager credential succeeded without printing the secret.
+- Authenticated API reads returned both integrations as `ACTIVE`, two WhatsApp conversations, and
+  zero Telegram conversations.
+- `pnpm verify`: 66 test files and 159 tests passed after adding the migration CLI.
+
 ## 2026-07-31 — StoragIA automation queue
 
 - Operator: Codex using AWS user `saul`.

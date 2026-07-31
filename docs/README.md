@@ -13,6 +13,7 @@ This directory records how the gateway is designed, created, deployed, and opera
 - [WhatsApp API](./guides/whatsapp-api.md)
   - [WhatsApp Embedded Signup](./guides/whatsapp-embedded-signup.md)
 - `runbooks/`: operational procedures.
+  - [Migrate a tenant between applications](./runbooks/migrate-tenant-application.md)
 - `implementation-status.md`: implementation progress against the specification.
 
 No document in this directory may contain provider tokens, client secrets, signing secrets, or

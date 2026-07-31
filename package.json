@@ -14,6 +14,7 @@
     "admin:backfill-conversation-index": "tsx src/cli/backfill-conversation-index.ts",
     "admin:configure-whatsapp-embedded-signup": "tsx src/cli/configure-whatsapp-embedded-signup.ts",
     "admin:create-application": "tsx src/cli/create-application.ts",
+    "admin:migrate-tenant-application": "tsx src/cli/migrate-tenant-application.ts",
     "build": "tsc --project tsconfig.build.json",
     "deploy:dev": "pnpm verify && serverless deploy --stage dev",
     "format": "prettier --write .",
