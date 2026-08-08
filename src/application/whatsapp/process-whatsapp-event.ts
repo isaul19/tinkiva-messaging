@@ -33,7 +33,8 @@ export class ProcessWhatsappEvent {
 
     if (
       (message.type !== "text" || message.text?.body === undefined) &&
-      (message.type !== "image" || message.image === undefined)
+      (message.type !== "image" || message.image === undefined) &&
+      (message.type !== "location" || message.location === undefined)
     ) {
       return { result: "IGNORED" };
     }
@@ -61,6 +62,13 @@ export class ProcessWhatsappEvent {
     let result: "CREATED" | "DUPLICATE";
     if (message.type === "text" && message.text?.body !== undefined) {
       result = await this.#messages.persistTextMessage({ ...common, text: message.text.body });
+    } else if (message.type === "location" && message.location !== undefined) {
+      if (this.#messages.persistLocationMessage === undefined) return { result: "IGNORED" };
+      result = await this.#messages.persistLocationMessage({
+        ...common,
+        latitude: message.location.latitude,
+        longitude: message.location.longitude,
+      });
     } else if (message.image !== undefined) {
       result = await this.#persistImage({
         common,

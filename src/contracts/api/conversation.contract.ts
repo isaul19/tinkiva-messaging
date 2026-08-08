@@ -6,6 +6,7 @@ import {
   messageIdSchema,
   tenantIdSchema,
 } from "../shared/identifiers.js";
+import { latitudeSchema, longitudeSchema } from "../shared/location.js";
 import { providerSchema } from "./message.contract.js";
 
 export const conversationStatusSchema = z.enum(["OPEN", "CLOSED"]);
@@ -58,6 +59,13 @@ export const conversationMessageSchema = z.discriminatedUnion("type", [
         })
         .strict(),
       type: z.literal("IMAGE"),
+    })
+    .strict(),
+  conversationMessageBaseSchema
+    .extend({
+      latitude: latitudeSchema,
+      longitude: longitudeSchema,
+      type: z.literal("LOCATION"),
     })
     .strict(),
 ]);

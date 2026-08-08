@@ -12,6 +12,7 @@ import type {
   ConversationMessage,
 } from "../../contracts/api/conversation.contract.js";
 import type { MediaUrlSigner } from "../../application/ports/media.js";
+import { latitudeSchema, longitudeSchema } from "../../contracts/shared/location.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
 import { conversationIndexPartitionKey } from "./conversation-index.js";
 
@@ -41,6 +42,7 @@ const messageRecordSchema = z.looseObject({
   direction: z.enum(["INBOUND", "OUTBOUND"]),
   failureCode: z.string().min(1).optional(),
   integrationId: z.string().min(1),
+  latitude: latitudeSchema.optional(),
   messageId: z.string().min(1),
   occurredAt: z.iso.datetime(),
   provider: z.enum(["TELEGRAM", "WHATSAPP"]),
@@ -55,8 +57,9 @@ const messageRecordSchema = z.looseObject({
       sizeBytes: z.number().int().positive(),
     })
     .optional(),
+  longitude: longitudeSchema.optional(),
   text: z.string().optional(),
-  type: z.enum(["IMAGE", "TEXT"]),
+  type: z.enum(["IMAGE", "LOCATION", "TEXT"]),
 });
 
 const conversationCursorSchema = z.strictObject({
@@ -325,6 +328,17 @@ export class DynamoConversationReader implements ConversationReader {
     if (message.type === "TEXT") {
       if (message.text === undefined) throw new Error("Text message content is missing.");
       return { ...common, text: message.text, type: "TEXT" };
+    }
+    if (message.type === "LOCATION") {
+      if (typeof message.latitude !== "number" || typeof message.longitude !== "number") {
+        throw new Error("Location message coordinates are missing.");
+      }
+      return {
+        ...common,
+        latitude: message.latitude,
+        longitude: message.longitude,
+        type: "LOCATION",
+      };
     }
     if (message.media === undefined) throw new Error("Image message content is missing.");
     return {

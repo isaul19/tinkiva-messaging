@@ -8,6 +8,7 @@ import { buildConversationIndexKeys } from "./conversation-index.js";
 
 import type {
   PersistTelegramImageMessage,
+  PersistTelegramLocationMessage,
   PersistTelegramTextMessage,
   TelegramMessageStore,
 } from "../../application/ports/telegram-message-store.js";
@@ -35,8 +36,15 @@ export class DynamoTelegramMessageStore implements TelegramMessageStore {
     return this.#persistMessage(input);
   }
 
+  public async persistLocationMessage(
+    input: PersistTelegramLocationMessage,
+  ): Promise<"CREATED" | "DUPLICATE"> {
+    return this.#persistMessage(input);
+  }
+
   async #persistMessage(
-    input: PersistTelegramTextMessage | PersistTelegramImageMessage,
+    input:
+      PersistTelegramTextMessage | PersistTelegramImageMessage | PersistTelegramLocationMessage,
   ): Promise<"CREATED" | "DUPLICATE"> {
     const identityId = deterministicIdentityId(input.integrationId, input.chatId);
     const messageSortKey = `MESSAGE#${input.occurredAt}#${input.messageId}`;
@@ -177,7 +185,13 @@ export class DynamoTelegramMessageStore implements TelegramMessageStore {
                         media: input.media,
                         type: "IMAGE",
                       }
-                    : { text: input.text, type: "TEXT" }),
+                    : "latitude" in input
+                      ? {
+                          latitude: input.latitude,
+                          longitude: input.longitude,
+                          type: "LOCATION",
+                        }
+                      : { text: input.text, type: "TEXT" }),
                 },
                 TableName: this.#dataTable,
               },

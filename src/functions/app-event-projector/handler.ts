@@ -13,6 +13,7 @@ import {
   type RealtimeMessageEvent,
   type RealtimeMessageEventType,
 } from "../../contracts/api/realtime.contract.js";
+import { latitudeSchema, longitudeSchema } from "../../contracts/shared/location.js";
 import { s3Client } from "../../infrastructure/aws/clients.js";
 import { S3MediaStore } from "../../infrastructure/s3/s3-media-store.js";
 import { RoutedApplicationEventPublisher } from "../../infrastructure/sqs/routed-application-event-publisher.js";
@@ -30,6 +31,7 @@ const streamMessageSchema = z.looseObject({
   direction: z.enum(["INBOUND", "OUTBOUND"]),
   failureCode: z.string().min(1).optional(),
   integrationId: z.string().min(1),
+  latitude: latitudeSchema.optional(),
   messageId: z.string().min(1),
   occurredAt: z.iso.datetime(),
   provider: z.enum(["TELEGRAM", "WHATSAPP"]),
@@ -45,8 +47,9 @@ const streamMessageSchema = z.looseObject({
       sizeBytes: z.number().int().positive(),
     })
     .optional(),
+  longitude: longitudeSchema.optional(),
   text: z.string().optional(),
-  type: z.enum(["IMAGE", "TEXT"]),
+  type: z.enum(["IMAGE", "LOCATION", "TEXT"]),
 });
 
 export interface AppEventProjectorHandlerDependencies {
@@ -144,6 +147,17 @@ export function projectRealtimeMessageEvent(
   if (message.type === "TEXT") {
     if (message.text === undefined) return undefined;
     return buildEvent({ ...common, text: message.text, type: "TEXT" });
+  }
+  if (message.type === "LOCATION") {
+    if (typeof message.latitude !== "number" || typeof message.longitude !== "number") {
+      return undefined;
+    }
+    return buildEvent({
+      ...common,
+      latitude: message.latitude,
+      longitude: message.longitude,
+      type: "LOCATION",
+    });
   }
   if (message.media === undefined || mediaSigner === undefined) return undefined;
   const storedMedia = message.media;

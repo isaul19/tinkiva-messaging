@@ -4,6 +4,7 @@ import { ulid } from "ulid";
 
 import type { InboundImageImporter } from "../ports/media.js";
 import type {
+  PersistTelegramLocationMessage,
   PersistTelegramTextMessage,
   TelegramMessageStore,
 } from "../ports/telegram-message-store.js";
@@ -29,7 +30,10 @@ export class ProcessTelegramUpdate {
     const applicationId = required(envelope.applicationId, "applicationId");
     const message = resolveMessage(envelope.payload.update);
 
-    if (message === undefined || (message.text === undefined && message.photo === undefined)) {
+    if (
+      message === undefined ||
+      (message.text === undefined && message.photo === undefined && message.location === undefined)
+    ) {
       return {
         result: "IGNORED",
       };
@@ -38,6 +42,9 @@ export class ProcessTelegramUpdate {
       message.photo !== undefined &&
       (this.#media === undefined || this.#messages.persistImageMessage === undefined)
     ) {
+      return { result: "IGNORED" };
+    }
+    if (message.location !== undefined && this.#messages.persistLocationMessage === undefined) {
       return { result: "IGNORED" };
     }
 
@@ -67,7 +74,13 @@ export class ProcessTelegramUpdate {
       ...(message.from?.username === undefined ? {} : { username: message.from.username }),
     };
     let result: "CREATED" | "DUPLICATE";
-    if (message.photo === undefined) {
+    if (message.location !== undefined) {
+      result = await this.#persistLocation({
+        common,
+        latitude: message.location.latitude,
+        longitude: message.location.longitude,
+      });
+    } else if (message.photo === undefined) {
       if (message.text === undefined) return { result: "IGNORED" };
       result = await this.#messages.persistTextMessage({ ...common, text: message.text });
     } else {
@@ -83,6 +96,22 @@ export class ProcessTelegramUpdate {
     return {
       result,
     };
+  }
+
+  async #persistLocation(input: {
+    common: Omit<PersistTelegramTextMessage, "text">;
+    latitude: number;
+    longitude: number;
+  }): Promise<"CREATED" | "DUPLICATE"> {
+    if (this.#messages.persistLocationMessage === undefined) {
+      throw new Error("Telegram location processing is not configured.");
+    }
+    const location: PersistTelegramLocationMessage = {
+      ...input.common,
+      latitude: input.latitude,
+      longitude: input.longitude,
+    };
+    return this.#messages.persistLocationMessage(location);
   }
 
   async #persistImage(input: {

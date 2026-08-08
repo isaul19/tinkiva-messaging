@@ -102,6 +102,37 @@ describe("projectRealtimeMessageEvent", () => {
     ).toBeUndefined();
   });
 
+  it("projects inbound locations with numeric coordinates", () => {
+    const result = projectRealtimeMessageEvent({
+      dynamodb: {
+        NewImage: marshall(
+          {
+            ...message,
+            latitude: 4.711,
+            longitude: -74.0721,
+            provider: "TELEGRAM",
+            text: undefined,
+            type: "LOCATION",
+          },
+          { removeUndefinedValues: true },
+        ),
+      },
+      eventID: "stream-location-1",
+      eventName: "INSERT",
+    } as DynamoDBRecord);
+
+    expect(result).toMatchObject({
+      data: {
+        message: {
+          latitude: 4.711,
+          longitude: -74.0721,
+          type: "LOCATION",
+        },
+      },
+      type: "message.received",
+    });
+  });
+
   it("reports a failed destination publication for DynamoDB Stream retry", async () => {
     const publish = vi.fn().mockRejectedValue(new Error("queue unavailable"));
     const handler = createAppEventProjectorHandler({ publisher: { publish } });

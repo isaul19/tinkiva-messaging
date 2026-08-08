@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { latitudeSchema, longitudeSchema } from "../shared/location.js";
+
 const telegramUserSchema = z.looseObject({
   first_name: z.string().min(1),
   id: z.number().int(),
@@ -33,6 +35,11 @@ const telegramFileSchema = z.looseObject({
   mime_type: z.string().optional(),
 });
 
+const telegramLocationSchema = z.looseObject({
+  latitude: latitudeSchema,
+  longitude: longitudeSchema,
+});
+
 export const telegramMessageSchema = z.looseObject({
   audio: telegramFileSchema.optional(),
   caption: z.string().max(1_024).optional(),
@@ -40,6 +47,7 @@ export const telegramMessageSchema = z.looseObject({
   date: z.number().int().nonnegative(),
   document: telegramFileSchema.optional(),
   from: telegramUserSchema.optional(),
+  location: telegramLocationSchema.optional(),
   message_id: z.number().int().positive(),
   photo: z.array(telegramPhotoSizeSchema).min(1).optional(),
   text: z.string().max(4_096).optional(),

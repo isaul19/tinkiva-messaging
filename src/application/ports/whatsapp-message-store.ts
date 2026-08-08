@@ -21,6 +21,11 @@ export interface PersistWhatsappImageMessage extends Omit<PersistWhatsappTextMes
   media: MediaReference;
 }
 
+export interface PersistWhatsappLocationMessage extends Omit<PersistWhatsappTextMessage, "text"> {
+  latitude: number;
+  longitude: number;
+}
+
 export interface PersistWhatsappStatus {
   errorCode?: string;
   integrationId: string;
@@ -32,6 +37,7 @@ export interface PersistWhatsappStatus {
 
 export interface WhatsappMessageStore {
   persistImageMessage?(input: PersistWhatsappImageMessage): Promise<"CREATED" | "DUPLICATE">;
+  persistLocationMessage?(input: PersistWhatsappLocationMessage): Promise<"CREATED" | "DUPLICATE">;
   persistStatus(input: PersistWhatsappStatus): Promise<"IGNORED" | "UPDATED" | "DUPLICATE">;
   persistTextMessage(input: PersistWhatsappTextMessage): Promise<"CREATED" | "DUPLICATE">;
 }

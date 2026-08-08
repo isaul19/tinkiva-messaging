@@ -23,7 +23,13 @@ export interface PersistTelegramImageMessage extends Omit<PersistTelegramTextMes
   media: MediaReference;
 }
 
+export interface PersistTelegramLocationMessage extends Omit<PersistTelegramTextMessage, "text"> {
+  latitude: number;
+  longitude: number;
+}
+
 export interface TelegramMessageStore {
   persistImageMessage?(input: PersistTelegramImageMessage): Promise<"CREATED" | "DUPLICATE">;
+  persistLocationMessage?(input: PersistTelegramLocationMessage): Promise<"CREATED" | "DUPLICATE">;
   persistTextMessage(input: PersistTelegramTextMessage): Promise<"CREATED" | "DUPLICATE">;
 }

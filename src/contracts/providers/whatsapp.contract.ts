@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { latitudeSchema, longitudeSchema } from "../shared/location.js";
+
 export const whatsappCredentialSchema = z.strictObject({
   accessToken: z.string().min(20).max(4_096),
   appSecret: z.string().min(16).max(500),
@@ -27,6 +29,14 @@ export const whatsappMessageSchema = z.looseObject({
       id: z.string().min(1),
       mime_type: z.string().min(1).optional(),
       sha256: z.string().min(1).optional(),
+    })
+    .optional(),
+  location: z
+    .looseObject({
+      address: z.string().optional(),
+      latitude: latitudeSchema,
+      longitude: longitudeSchema,
+      name: z.string().optional(),
     })
     .optional(),
   text: z

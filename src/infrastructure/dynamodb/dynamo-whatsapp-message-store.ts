@@ -8,6 +8,7 @@ import { buildConversationIndexKeys } from "./conversation-index.js";
 
 import type {
   PersistWhatsappImageMessage,
+  PersistWhatsappLocationMessage,
   PersistWhatsappStatus,
   PersistWhatsappTextMessage,
   WhatsappMessageStore,
@@ -43,8 +44,15 @@ export class DynamoWhatsappMessageStore implements WhatsappMessageStore {
     return this.#persistMessage(input);
   }
 
+  public async persistLocationMessage(
+    input: PersistWhatsappLocationMessage,
+  ): Promise<"CREATED" | "DUPLICATE"> {
+    return this.#persistMessage(input);
+  }
+
   async #persistMessage(
-    input: PersistWhatsappTextMessage | PersistWhatsappImageMessage,
+    input:
+      PersistWhatsappTextMessage | PersistWhatsappImageMessage | PersistWhatsappLocationMessage,
   ): Promise<"CREATED" | "DUPLICATE"> {
     const identityId = deterministicIdentityId(
       input.integrationId,
@@ -219,7 +227,13 @@ export class DynamoWhatsappMessageStore implements WhatsappMessageStore {
                         media: input.media,
                         type: "IMAGE",
                       }
-                    : { text: input.text, type: "TEXT" }),
+                    : "latitude" in input
+                      ? {
+                          latitude: input.latitude,
+                          longitude: input.longitude,
+                          type: "LOCATION",
+                        }
+                      : { text: input.text, type: "TEXT" }),
                 },
                 TableName: this.#dataTable,
               },
