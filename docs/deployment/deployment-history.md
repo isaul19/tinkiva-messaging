@@ -1,5 +1,31 @@
 # Deployment history
 
+## 2026-08-08 — Point location messages
+
+- Operator: Codex using AWS user `saul`.
+- Stage: `dev`; region: `us-east-1`; account: `160358212333`.
+- Stack: `tinkiva-messaging-gateway-dev`.
+- Final status: `UPDATE_COMPLETE`.
+- AWS update time: `2026-08-08T20:51:43.657000+00:00`.
+
+### Added
+
+- Inbound Telegram and WhatsApp point locations normalized as `type: "LOCATION"` with numeric
+  `latitude` and `longitude`.
+- Coordinate validation, DynamoDB persistence, conversation-history projection, and realtime event
+  projection for location messages.
+- Live-location updates and frontend rendering remain outside this deployment.
+
+### Verification
+
+- `pnpm verify`: 69 test files and 166 tests passed.
+- Coverage: 92.79% statements, 81.68% branches, 94.93% functions, and 93.42% lines.
+- `pnpm package`: 118 logical resources and all infrastructure validators passed.
+- The affected `inboundProcessor`, `privateApi`, and `appEventProjector` Lambdas are `Active` with
+  `LastUpdateStatus=Successful`.
+- Live gateway health returned `200` with `{"service":"tinkiva-messaging-gateway","status":"ok"}`.
+- No `ERROR` entries were found in the affected Lambda log groups during post-deployment checks.
+
 ## 2026-07-31 — StoragIA tenant ownership migration
 
 - Operator: Codex using AWS user `saul`.
