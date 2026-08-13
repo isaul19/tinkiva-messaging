@@ -15,6 +15,7 @@ const integrationSchema = z.looseObject({
   graphApiVersion: z.string().min(1).optional(),
   provider: z.enum(["TELEGRAM", "WHATSAPP"]),
   providerConnectionId: z.string().min(1),
+  status: z.literal("ACTIVE"),
   tenantId: z.string().min(1),
 });
 
@@ -29,6 +30,9 @@ const whatsappMediaResponseSchema = z.looseObject({
   mime_type: z.string().optional(),
   url: z.url(),
 });
+
+const TELEGRAM_MAX_AUDIO_BYTES = 20 * 1024 * 1024;
+const WHATSAPP_MAX_AUDIO_BYTES = 16 * 1024 * 1024;
 
 export class ProviderInboundImageImporter implements InboundImageImporter {
   readonly #controlTable: string;
@@ -83,6 +87,40 @@ export class ProviderInboundImageImporter implements InboundImageImporter {
     });
   }
 
+  public async importTelegramAudio(input: {
+    applicationId: string;
+    fileId: string;
+    integrationId: string;
+    messageId: string;
+    mimeType?: string;
+    tenantId: string;
+  }): Promise<MediaReference> {
+    const integration = await this.#getIntegration(input, "TELEGRAM");
+    const credential = await this.#telegramCredentials.get(integration.providerConnectionId);
+    const metadataResponse = await this.#fetch(
+      `https://api.telegram.org/bot${encodeURIComponent(credential.botToken)}/getFile?file_id=${encodeURIComponent(input.fileId)}`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    const metadata = telegramFileResponseSchema.safeParse(await metadataResponse.json());
+    if (!metadataResponse.ok || !metadata.success) throw providerMediaUnavailable("Telegram");
+
+    const fileResponse = await this.#fetch(
+      `https://api.telegram.org/file/bot${encodeURIComponent(credential.botToken)}/${metadata.data.result.file_path}`,
+      { signal: AbortSignal.timeout(20_000) },
+    );
+    if (!fileResponse.ok) throw providerMediaUnavailable("Telegram");
+    assertDeclaredSize(fileResponse, TELEGRAM_MAX_AUDIO_BYTES, "Telegram audio");
+    const bytes = new Uint8Array(await fileResponse.arrayBuffer());
+    return this.#media.putAudio({
+      ...input,
+      bytes,
+      maxSizeBytes: TELEGRAM_MAX_AUDIO_BYTES,
+      mimeType:
+        input.mimeType ?? fileResponse.headers.get("content-type") ?? "application/octet-stream",
+      provider: "TELEGRAM",
+    });
+  }
+
   public async importWhatsappImage(input: {
     applicationId: string;
     integrationId: string;
@@ -129,6 +167,54 @@ export class ProviderInboundImageImporter implements InboundImageImporter {
     });
   }
 
+  public async importWhatsappAudio(input: {
+    applicationId: string;
+    integrationId: string;
+    mediaId: string;
+    messageId: string;
+    mimeType?: string;
+    providerSha256?: string;
+    tenantId: string;
+  }): Promise<MediaReference> {
+    const integration = await this.#getIntegration(input, "WHATSAPP");
+    const credential = await this.#whatsappCredentials.get(integration.providerConnectionId);
+    const graphApiVersion = integration.graphApiVersion ?? "v23.0";
+    const metadataResponse = await this.#fetch(
+      `https://graph.facebook.com/${encodeURIComponent(graphApiVersion)}/${encodeURIComponent(input.mediaId)}`,
+      {
+        headers: { authorization: `Bearer ${credential.accessToken}` },
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    const metadata = whatsappMediaResponseSchema.safeParse(await metadataResponse.json());
+    if (!metadataResponse.ok || !metadata.success) throw providerMediaUnavailable("WhatsApp");
+
+    const fileResponse = await this.#fetch(metadata.data.url, {
+      headers: { authorization: `Bearer ${credential.accessToken}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!fileResponse.ok) throw providerMediaUnavailable("WhatsApp");
+    assertDeclaredSize(fileResponse, WHATSAPP_MAX_AUDIO_BYTES, "WhatsApp audio");
+    const bytes = new Uint8Array(await fileResponse.arrayBuffer());
+    if (
+      input.providerSha256 !== undefined &&
+      createHash("sha256").update(bytes).digest("base64") !== input.providerSha256
+    ) {
+      throw new ApplicationError("MEDIA_INVALID", "The WhatsApp audio checksum is invalid.", 422);
+    }
+    return this.#media.putAudio({
+      ...input,
+      bytes,
+      maxSizeBytes: WHATSAPP_MAX_AUDIO_BYTES,
+      mimeType:
+        input.mimeType ??
+        metadata.data.mime_type ??
+        fileResponse.headers.get("content-type") ??
+        "application/octet-stream",
+      provider: "WHATSAPP",
+    });
+  }
+
   async #getIntegration(
     input: { applicationId: string; integrationId: string; tenantId: string },
     provider: "TELEGRAM" | "WHATSAPP",
@@ -160,3 +246,10 @@ const providerMediaUnavailable = (provider: string): ApplicationError =>
     503,
     true,
   );
+
+const assertDeclaredSize = (response: Response, maxSizeBytes: number, label: string): void => {
+  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+  if (declaredLength > maxSizeBytes) {
+    throw new ApplicationError("MEDIA_INVALID", `${label} exceeds the size limit.`, 422);
+  }
+};

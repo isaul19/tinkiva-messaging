@@ -12,6 +12,7 @@ import type {
   ConversationMessage,
 } from "../../contracts/api/conversation.contract.js";
 import type { MediaUrlSigner } from "../../application/ports/media.js";
+import { audioMimeTypeSchema } from "../../contracts/shared/audio.js";
 import { latitudeSchema, longitudeSchema } from "../../contracts/shared/location.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
 import { conversationIndexPartitionKey } from "./conversation-index.js";
@@ -36,10 +37,18 @@ const identityRecordSchema = z.looseObject({
   username: z.string().min(1).nullable().optional(),
 });
 
+const imageMimeTypeSchema = z.enum(["image/jpeg", "image/png", "image/webp"]);
+
+const alternativeTextMetadataSchema = z.object({
+  alternativeText: z.string().trim().min(1).max(4_000).optional(),
+  alternativeTextStatus: z.enum(["FAILED", "PENDING", "READY"]).optional(),
+});
+
 const messageRecordSchema = z.looseObject({
   caption: z.string().max(1_024).optional(),
   conversationId: z.string().min(1),
   direction: z.enum(["INBOUND", "OUTBOUND"]),
+  durationSeconds: z.number().int().nonnegative().optional(),
   failureCode: z.string().min(1).optional(),
   integrationId: z.string().min(1),
   latitude: latitudeSchema.optional(),
@@ -52,14 +61,16 @@ const messageRecordSchema = z.looseObject({
     .object({
       bucket: z.string().min(1),
       key: z.string().min(1),
-      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+      mimeType: z.union([audioMimeTypeSchema, imageMimeTypeSchema]),
       sha256: z.string().regex(/^[a-f0-9]{64}$/),
       sizeBytes: z.number().int().positive(),
     })
     .optional(),
+  metadata: alternativeTextMetadataSchema.optional(),
   longitude: longitudeSchema.optional(),
   text: z.string().optional(),
-  type: z.enum(["IMAGE", "LOCATION", "TEXT"]),
+  type: z.enum(["AUDIO", "IMAGE", "LOCATION", "TEXT"]),
+  voice: z.boolean().optional(),
 });
 
 const conversationCursorSchema = z.strictObject({
@@ -340,17 +351,46 @@ export class DynamoConversationReader implements ConversationReader {
         type: "LOCATION",
       };
     }
+    if (message.type === "AUDIO") {
+      if (message.media === undefined || message.voice === undefined) {
+        throw new Error("Audio message content is missing.");
+      }
+      const mimeType = audioMimeTypeSchema.parse(message.media.mimeType);
+      return {
+        ...common,
+        ...(message.caption === undefined ? {} : { caption: message.caption }),
+        ...(message.durationSeconds === undefined
+          ? {}
+          : { durationSeconds: message.durationSeconds }),
+        media: {
+          mediaId: message.media.key,
+          mimeType,
+          sha256: message.media.sha256,
+          sizeBytes: message.media.sizeBytes,
+          url: await this.#media.temporaryDownloadUrl(message.media),
+        },
+        ...(message.direction !== "INBOUND" || message.metadata?.alternativeText === undefined
+          ? {}
+          : { metadata: { alternativeText: message.metadata.alternativeText } }),
+        type: "AUDIO",
+        voice: message.voice,
+      };
+    }
     if (message.media === undefined) throw new Error("Image message content is missing.");
+    const mimeType = imageMimeTypeSchema.parse(message.media.mimeType);
     return {
       ...common,
       ...(message.caption === undefined ? {} : { caption: message.caption }),
       media: {
         mediaId: message.media.key,
-        mimeType: message.media.mimeType,
+        mimeType,
         sha256: message.media.sha256,
         sizeBytes: message.media.sizeBytes,
         url: await this.#media.temporaryDownloadUrl(message.media),
       },
+      ...(message.direction !== "INBOUND" || message.metadata?.alternativeText === undefined
+        ? {}
+        : { metadata: { alternativeText: message.metadata.alternativeText } }),
       type: "IMAGE",
     };
   }

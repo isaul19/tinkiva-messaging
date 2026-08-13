@@ -51,6 +51,10 @@ describe("DynamoTenantIntegrationReader", () => {
             createdAt: "2026-07-25T20:00:00.000Z",
             displayName: "Storagia WhatsApp",
             displayPhoneNumber: "+51 904 843 582",
+            inboundMedia: {
+              audioAlternativeText: true,
+              imageAlternativeText: false,
+            },
             integrationId: "int_whatsapp",
             phoneNumberId: "1265721213282879",
             provider: "WHATSAPP",
@@ -101,6 +105,10 @@ describe("DynamoTenantIntegrationReader", () => {
         createdAt: "2026-07-25T19:00:00.000Z",
         credentialVersion: 1,
         displayName: "Storagia Telegram",
+        inboundMedia: {
+          audioAlternativeText: false,
+          imageAlternativeText: false,
+        },
         integrationId: "int_telegram",
         provider: "TELEGRAM",
         providerAccountId: "777888",
@@ -112,6 +120,10 @@ describe("DynamoTenantIntegrationReader", () => {
         credentialVersion: 2,
         displayName: "Storagia WhatsApp",
         displayPhoneNumber: "+51 904 843 582",
+        inboundMedia: {
+          audioAlternativeText: true,
+          imageAlternativeText: false,
+        },
         integrationId: "int_whatsapp",
         phoneNumberId: "1265721213282879",
         provider: "WHATSAPP",

@@ -9,6 +9,7 @@ import type {
   RegisterTelegramIntegrationRequest,
   TelegramIntegrationResponse,
 } from "../../contracts/api/integration.contract.js";
+import { inboundMediaSettingsSchema } from "../../contracts/api/inbound-media.contract.js";
 
 export interface RegisterTelegramIntegrationCommand {
   applicationId: string;
@@ -47,6 +48,7 @@ export class RegisterTelegramIntegration {
     const webhookKey = randomBytes(32).toString("base64url");
     const webhookSecretToken = randomBytes(32).toString("base64url");
     const webhookUrl = `${this.#config.webhookBaseUrl.replace(/\/+$/, "")}/webhooks/telegram/${webhookKey}`;
+    const inboundMedia = inboundMediaSettingsSchema.parse(command.request.inboundMedia);
     const credentialRef = await this.#secrets.create({
       applicationId: command.applicationId,
       botToken: command.request.botToken,
@@ -63,6 +65,7 @@ export class RegisterTelegramIntegration {
         ...(bot.username === undefined ? {} : { botUsername: bot.username }),
         createdAt,
         displayName: command.request.displayName,
+        inboundMedia,
         integrationId,
         providerConnectionId,
         credentialRef,
@@ -106,6 +109,7 @@ export class RegisterTelegramIntegration {
       botId: bot.id,
       ...(bot.username === undefined ? {} : { botUsername: bot.username }),
       displayName: command.request.displayName,
+      inboundMedia,
       integrationId,
       provider: "TELEGRAM",
       status: "ACTIVE",

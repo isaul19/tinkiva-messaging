@@ -35,13 +35,17 @@ const telegramFileSchema = z.looseObject({
   mime_type: z.string().optional(),
 });
 
+const telegramAudioSchema = telegramFileSchema.extend({
+  duration: z.number().int().nonnegative(),
+});
+
 const telegramLocationSchema = z.looseObject({
   latitude: latitudeSchema,
   longitude: longitudeSchema,
 });
 
 export const telegramMessageSchema = z.looseObject({
-  audio: telegramFileSchema.optional(),
+  audio: telegramAudioSchema.optional(),
   caption: z.string().max(1_024).optional(),
   chat: telegramChatSchema,
   date: z.number().int().nonnegative(),
@@ -52,6 +56,7 @@ export const telegramMessageSchema = z.looseObject({
   photo: z.array(telegramPhotoSizeSchema).min(1).optional(),
   text: z.string().max(4_096).optional(),
   video: telegramFileSchema.optional(),
+  voice: telegramAudioSchema.optional(),
 });
 
 export const telegramCallbackQuerySchema = z.looseObject({

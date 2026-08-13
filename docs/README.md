@@ -12,6 +12,8 @@ This directory records how the gateway is designed, created, deployed, and opera
   cost drivers, and review points.
 - [WhatsApp API](./guides/whatsapp-api.md)
   - [WhatsApp Embedded Signup](./guides/whatsapp-embedded-signup.md)
+- [OpenAI inbound media enrichment](./guides/openai-media-enrichment.md)
+- [Application credentials and global administration](./guides/application-client-credentials.md)
 - `runbooks/`: operational procedures.
   - [Migrate a tenant between applications](./runbooks/migrate-tenant-application.md)
 - `implementation-status.md`: implementation progress against the specification.

@@ -133,6 +133,117 @@ describe("projectRealtimeMessageEvent", () => {
     });
   });
 
+  it("projects inbound audio with a temporary playback URL", async () => {
+    const storedMedia = {
+      bucket: "media-test",
+      key: "tenants/tenant_test/telegram/2026/08/08/msg_test/audio.ogg",
+      mimeType: "audio/ogg",
+      sha256: "a".repeat(64),
+      sizeBytes: 1_024,
+    };
+    const temporaryDownloadUrl = vi.fn().mockResolvedValue("https://signed.example/audio.ogg");
+    const result = await projectRealtimeMessageEvent(
+      {
+        dynamodb: {
+          NewImage: marshall(
+            {
+              ...message,
+              durationSeconds: 9,
+              media: storedMedia,
+              provider: "TELEGRAM",
+              text: undefined,
+              type: "AUDIO",
+              voice: true,
+            },
+            { removeUndefinedValues: true },
+          ),
+        },
+        eventID: "stream-audio-1",
+        eventName: "INSERT",
+      } as DynamoDBRecord,
+      { temporaryDownloadUrl },
+    );
+
+    expect(result).toMatchObject({
+      data: {
+        message: {
+          durationSeconds: 9,
+          media: {
+            mediaId: storedMedia.key,
+            mimeType: "audio/ogg",
+            url: "https://signed.example/audio.ogg",
+          },
+          type: "AUDIO",
+          voice: true,
+        },
+      },
+      type: "message.received",
+    });
+    expect(temporaryDownloadUrl).toHaveBeenCalledWith(storedMedia);
+  });
+
+  it("waits for requested media enrichment and projects the terminal update", async () => {
+    const storedMedia = {
+      bucket: "media-test",
+      key: "tenants/tenant_test/whatsapp/2026/08/12/msg_test/image.jpg",
+      mimeType: "image/jpeg",
+      sha256: "b".repeat(64),
+      sizeBytes: 2_048,
+    };
+    const pending = {
+      ...message,
+      media: storedMedia,
+      metadata: { alternativeTextStatus: "PENDING" },
+      text: undefined,
+      type: "IMAGE",
+    };
+    const temporaryDownloadUrl = vi.fn().mockResolvedValue("https://signed.example/image.jpg");
+
+    expect(
+      projectRealtimeMessageEvent(
+        {
+          dynamodb: {
+            NewImage: marshall(pending, { removeUndefinedValues: true }),
+          },
+          eventID: "stream-image-pending",
+          eventName: "INSERT",
+        } as DynamoDBRecord,
+        { temporaryDownloadUrl },
+      ),
+    ).toBeUndefined();
+
+    const result = await projectRealtimeMessageEvent(
+      {
+        dynamodb: {
+          NewImage: marshall(
+            {
+              ...pending,
+              metadata: {
+                alternativeText: "Una factura fotografiada sobre una mesa.",
+                alternativeTextStatus: "READY",
+              },
+            },
+            { removeUndefinedValues: true },
+          ),
+          OldImage: marshall(pending, { removeUndefinedValues: true }),
+        },
+        eventID: "stream-image-ready",
+        eventName: "MODIFY",
+      } as DynamoDBRecord,
+      { temporaryDownloadUrl },
+    );
+
+    expect(result).toMatchObject({
+      data: {
+        message: {
+          metadata: { alternativeText: "Una factura fotografiada sobre una mesa." },
+          type: "IMAGE",
+        },
+      },
+      type: "message.received",
+    });
+  });
+
   it("reports a failed destination publication for DynamoDB Stream retry", async () => {
     const publish = vi.fn().mockRejectedValue(new Error("queue unavailable"));
     const handler = createAppEventProjectorHandler({ publisher: { publish } });

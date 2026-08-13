@@ -68,7 +68,7 @@ Outputs:
     Value:
       Ref: MediaQueue
   ProviderCredentialsKeyArn:
-    Description: KMS key encrypting provider credentials stored in DynamoDB.
+    Description: KMS key encrypting provider and per-integration OpenAI credentials in DynamoDB.
     Value:
       Fn::GetAtt:
         - ProviderCredentialsKey

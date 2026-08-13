@@ -19,8 +19,17 @@ export interface PersistTelegramTextMessage {
 }
 
 export interface PersistTelegramImageMessage extends Omit<PersistTelegramTextMessage, "text"> {
+  alternativeTextRequested?: boolean;
   caption?: string;
   media: MediaReference;
+}
+
+export interface PersistTelegramAudioMessage extends Omit<PersistTelegramTextMessage, "text"> {
+  alternativeTextRequested?: boolean;
+  caption?: string;
+  durationSeconds?: number;
+  media: MediaReference;
+  voice: boolean;
 }
 
 export interface PersistTelegramLocationMessage extends Omit<PersistTelegramTextMessage, "text"> {
@@ -29,6 +38,7 @@ export interface PersistTelegramLocationMessage extends Omit<PersistTelegramText
 }
 
 export interface TelegramMessageStore {
+  persistAudioMessage?(input: PersistTelegramAudioMessage): Promise<"CREATED" | "DUPLICATE">;
   persistImageMessage?(input: PersistTelegramImageMessage): Promise<"CREATED" | "DUPLICATE">;
   persistLocationMessage?(input: PersistTelegramLocationMessage): Promise<"CREATED" | "DUPLICATE">;
   persistTextMessage(input: PersistTelegramTextMessage): Promise<"CREATED" | "DUPLICATE">;

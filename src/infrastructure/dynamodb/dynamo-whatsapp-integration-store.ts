@@ -52,6 +52,7 @@ export class DynamoWhatsappIntegrationStore implements WhatsappIntegrationStore 
           : { displayPhoneNumber: input.displayPhoneNumber }),
         entityType: "CHANNEL_INTEGRATION",
         graphApiVersion: input.graphApiVersion,
+        inboundMedia: input.inboundMedia,
         integrationId: input.integrationId,
         phoneNumberId: input.phoneNumberId,
         provider: "WHATSAPP",

@@ -406,6 +406,7 @@ const conversationStore = new DynamoConversationStore(
   dynamoDocumentClient,
   config.CONTROL_TABLE,
   config.DATA_TABLE,
+  mediaStore,
 );
 const outgoingMessageStore = new DynamoOutgoingMessageStore(
   dynamoDocumentClient,

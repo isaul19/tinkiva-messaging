@@ -1,9 +1,12 @@
+import type { InboundMediaSettings } from "../../contracts/api/inbound-media.contract.js";
+
 export interface CreateTelegramIntegrationRecords {
   applicationId: string;
   botId: string;
   botUsername?: string;
   createdAt: string;
   displayName: string;
+  inboundMedia: InboundMediaSettings;
   integrationId: string;
   providerConnectionId: string;
   credentialRef: string;

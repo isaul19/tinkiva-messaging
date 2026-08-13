@@ -1,8 +1,10 @@
 import { Logger } from "@aws-lambda-powertools/logger";
+import { SQSClient } from "@aws-sdk/client-sqs";
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 
 import { ProcessTelegramUpdate } from "../../application/telegram/process-telegram-update.js";
 import { ProcessWhatsappEvent } from "../../application/whatsapp/process-whatsapp-event.js";
+import { ResolveInboundMediaEnrichment } from "../../application/media/resolve-inbound-media-enrichment.js";
 import { telegramInboundEnvelopeSchema } from "../../contracts/queues/telegram-inbound.contract.js";
 import {
   whatsappInboundMessageEnvelopeSchema,
@@ -13,9 +15,12 @@ import { KmsDynamoTelegramCredentialVault } from "../../infrastructure/dynamodb/
 import { KmsDynamoWhatsappCredentialVault } from "../../infrastructure/dynamodb/kms-dynamo-whatsapp-credential-vault.js";
 import { DynamoTelegramMessageStore } from "../../infrastructure/dynamodb/dynamo-telegram-message-store.js";
 import { DynamoWhatsappMessageStore } from "../../infrastructure/dynamodb/dynamo-whatsapp-message-store.js";
+import { DynamoInboundMediaEnrichmentConfigReader } from "../../infrastructure/dynamodb/dynamo-inbound-media-enrichment-config-reader.js";
 import { ProviderInboundImageImporter } from "../../infrastructure/media/provider-inbound-image-importer.js";
 import { S3MediaStore } from "../../infrastructure/s3/s3-media-store.js";
+import { SqsMediaEnrichmentJobPublisher } from "../../infrastructure/sqs/sqs-media-enrichment-job-publisher.js";
 import { loadInboundProcessorRuntimeConfig } from "../../shared/config/inbound-processor-runtime-config.js";
+import { ApplicationError } from "../../shared/errors/application-error.js";
 
 const logger = new Logger({
   serviceName: "inbound-processor",
@@ -54,6 +59,12 @@ export const createInboundProcessorHandler =
           throw new Error("Unsupported inbound provider event type.");
         }
       } catch (error) {
+        if (error instanceof ApplicationError && error.code === "INTEGRATION_NOT_FOUND") {
+          logger.warn("Discarded an inbound event for an unavailable integration.", {
+            messageId: record.messageId,
+          });
+          continue;
+        }
         logger.error("Failed to process an inbound provider event.", {
           error,
           messageId: record.messageId,
@@ -70,15 +81,21 @@ export const createInboundProcessorHandler =
   };
 
 const config = loadInboundProcessorRuntimeConfig();
+const enrichmentPublisher = new SqsMediaEnrichmentJobPublisher(
+  new SQSClient({}),
+  config.MEDIA_ENRICHMENT_QUEUE_URL,
+);
 const telegramMessageStore = new DynamoTelegramMessageStore(
   dynamoDocumentClient,
   config.CONTROL_TABLE,
   config.DATA_TABLE,
+  enrichmentPublisher,
 );
 const whatsappMessageStore = new DynamoWhatsappMessageStore(
   dynamoDocumentClient,
   config.CONTROL_TABLE,
   config.DATA_TABLE,
+  enrichmentPublisher,
 );
 const telegramCredentials = new KmsDynamoTelegramCredentialVault(dynamoDocumentClient, kmsClient, {
   keyArn: config.PROVIDER_CREDENTIALS_KEY_ARN,
@@ -101,8 +118,19 @@ const inboundImageImporter = new ProviderInboundImageImporter(
   mediaStore,
   { controlTable: config.CONTROL_TABLE },
 );
+const enrichment = new ResolveInboundMediaEnrichment(
+  new DynamoInboundMediaEnrichmentConfigReader(dynamoDocumentClient, config.CONTROL_TABLE),
+);
 
 export const main = createInboundProcessorHandler({
-  processTelegramUpdate: new ProcessTelegramUpdate(telegramMessageStore, inboundImageImporter),
-  processWhatsappEvent: new ProcessWhatsappEvent(whatsappMessageStore, inboundImageImporter),
+  processTelegramUpdate: new ProcessTelegramUpdate(
+    telegramMessageStore,
+    inboundImageImporter,
+    enrichment,
+  ),
+  processWhatsappEvent: new ProcessWhatsappEvent(
+    whatsappMessageStore,
+    inboundImageImporter,
+    enrichment,
+  ),
 });

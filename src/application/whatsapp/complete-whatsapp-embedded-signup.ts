@@ -3,6 +3,7 @@ import type { WhatsappEmbeddedSignupConfigurationReader } from "../ports/whatsap
 import type { WhatsappManagementApi } from "../ports/whatsapp-management-api.js";
 import type { RegisterWhatsappIntegration } from "./register-whatsapp-integration.js";
 import type { CompleteWhatsappEmbeddedSignupRequest } from "../../contracts/api/whatsapp-embedded-signup.contract.js";
+import { inboundMediaSettingsSchema } from "../../contracts/api/inbound-media.contract.js";
 import type { WhatsappIntegrationResponse } from "../../contracts/api/whatsapp-integration.contract.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
 
@@ -77,6 +78,7 @@ export class CompleteWhatsappEmbeddedSignup {
           ? {}
           : { businessPortfolioId: input.request.businessPortfolioId }),
         displayName: input.request.displayName,
+        inboundMedia: inboundMediaSettingsSchema.parse(input.request.inboundMedia),
         metaAppId: configuration.appId,
         phoneNumberId: input.request.phoneNumberId,
         wabaId: input.request.wabaId,

@@ -234,6 +234,56 @@ functions:
           authorizer:
             name: applicationAuthorizer
 
+  platformAdmin:
+    handler: src/functions/platform-admin/handler.main
+    description: Secure HTML console and API for platform-wide integration administration.
+    timeout: 29
+    role:
+      Fn::GetAtt:
+        - PlatformAdminLambdaRole
+        - Arn
+    environment:
+      CONTROL_TABLE:
+        Ref: MessagingControlTable
+      DATA_TABLE:
+        Ref: MessagingDataTable
+      MEDIA_BUCKET:
+        Ref: MessagingMediaBucket
+      PROVIDER_CREDENTIALS_KEY_ARN:
+        Fn::GetAtt:
+          - ProviderCredentialsKey
+          - Arn
+      STAGE: ${sls:stage}
+    events:
+      - httpApi:
+          path: /admin
+          method: GET
+      - httpApi:
+          path: /v1/platform/integrations
+          method: GET
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/platform/integrations/{integrationId}/inbound-media
+          method: PATCH
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/platform/integrations/{integrationId}/openai-credential
+          method: PUT
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/platform/integrations/{integrationId}/openai-credential
+          method: DELETE
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/platform/integrations/{integrationId}/deletions
+          method: POST
+          authorizer:
+            name: applicationAuthorizer
+
   telegramWebhook:
     handler: src/functions/telegram-webhook/handler.main
     description: Verifies Telegram webhook credentials and enqueues provider updates.
@@ -296,6 +346,8 @@ functions:
         Ref: MessagingDataTable
       MEDIA_BUCKET:
         Ref: MessagingMediaBucket
+      MEDIA_ENRICHMENT_QUEUE_URL:
+        Ref: MediaQueue
       MEDIA_URL_TTL_SECONDS: "300"
       PROVIDER_CREDENTIALS_KEY_ARN:
         Fn::GetAtt:
@@ -309,6 +361,42 @@ functions:
               - InboundQueue
               - Arn
           batchSize: 10
+          functionResponseType: ReportBatchItemFailures
+
+  mediaEnrichmentWorker:
+    handler: src/functions/media-enrichment-worker/handler.main
+    description: Generates OpenAI alternative text for inbound images and audio.
+    timeout: 120
+    memorySize: 1024
+    package:
+      patterns:
+        - "node_modules/@ffmpeg-installer/linux-arm64/ffmpeg"
+    role:
+      Fn::GetAtt:
+        - MediaEnrichmentWorkerLambdaRole
+        - Arn
+    environment:
+      CONTROL_TABLE:
+        Ref: MessagingControlTable
+      DATA_TABLE:
+        Ref: MessagingDataTable
+      MEDIA_BUCKET:
+        Ref: MessagingMediaBucket
+      MEDIA_URL_TTL_SECONDS: "300"
+      OPENAI_AUDIO_MODEL: ${param:openAiAudioModel, 'gpt-4o-mini-transcribe'}
+      OPENAI_IMAGE_MODEL: ${param:openAiImageModel, 'gpt-5.6-luna'}
+      PROVIDER_CREDENTIALS_KEY_ARN:
+        Fn::GetAtt:
+          - ProviderCredentialsKey
+          - Arn
+      STAGE: ${sls:stage}
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - MediaQueue
+              - Arn
+          batchSize: 2
           functionResponseType: ReportBatchItemFailures
 
   appEventProjector:
@@ -464,6 +552,8 @@ resources:
   - ${file(./infrastructure/serverless/phase2-iam.yml)}
   - ${file(./infrastructure/serverless/phase3-iam.yml)}
   - ${file(./infrastructure/serverless/phase4-iam.yml)}
+  - ${file(./infrastructure/serverless/platform-admin-iam.yml)}
+  - ${file(./infrastructure/serverless/media-enrichment-iam.yml)}
   - ${file(./infrastructure/serverless/realtime-iam.yml)}
   - ${file(./infrastructure/serverless/dynamodb.yml)}
   - ${file(./infrastructure/serverless/provider-credentials-kms.yml)}

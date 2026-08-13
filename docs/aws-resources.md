@@ -1,12 +1,13 @@
 # Inventario de recursos AWS de TinkivaMessaging
 
-Última revisión: 2026-07-31  
+Última revisión: 2026-08-12  
 Stack principal: `tinkiva-messaging-gateway-${stage}`  
 Región predeterminada: `us-east-1`  
-Stage inspeccionado en AWS: `dev`
+Stage de referencia para empaquetado: `dev`
 
-Estado de la nueva cola de automatización: desplegada en `dev` el 2026-07-31. El stack quedó en
-`UPDATE_COMPLETE` y sus recursos se verificaron directamente contra SQS, Lambda y CloudWatch.
+Las cantidades de este documento corresponden a la plantilla empaquetada localmente. El historial de
+despliegues distingue qué revisión llegó al stack `dev`; la migración de credenciales OpenAI por
+integración descrita aquí no se desplegó como parte de esta actualización documental.
 
 ## Objetivo de este documento
 
@@ -20,29 +21,29 @@ El inventario se obtuvo de:
 - el stack activo `tinkiva-messaging-gateway-dev` consultado de forma de solo lectura;
 - los clientes AWS utilizados por las Lambdas y los CLI administrativos.
 
-La plantilla objetivo contiene 118 recursos lógicos, incluyendo rutas, integraciones, permisos,
+La plantilla objetivo contiene 133 recursos lógicos, incluyendo rutas, integraciones, permisos,
 event source mappings y recursos auxiliares creados por Serverless Framework. Los recursos de
 aplicación más importantes se resumen a continuación.
 
 ## Resumen ejecutivo
 
-| Servicio AWS      |                                   Cantidad base | Uso principal                                                      |
-| ----------------- | ----------------------------------------------: | ------------------------------------------------------------------ |
-| CloudFormation    |                               1 stack por stage | Desplegar y actualizar toda la infraestructura como una unidad     |
-| API Gateway v2    |                                          2 APIs | API HTTP y API WebSocket realtime                                  |
-| Lambda            |                      12 funciones de aplicación | API, webhooks, procesamiento, envío y realtime                     |
-| Lambda auxiliar   |                                       1 función | Configuración de logging de API Gateway por Serverless Framework   |
-| DynamoDB          |                                        2 tablas | Plano de control y datos de mensajes                               |
-| DynamoDB Streams  |                                        1 stream | Convertir cambios durables de mensajes en eventos realtime         |
-| SQS               |                          6 colas fuente + 6 DLQ | Desacoplamiento, orden, reintentos y recuperación                  |
-| S3                |                          1 bucket de aplicación | Imágenes y objetos de medios privados                              |
-| KMS               |  1 clave administrada por el proyecto + 1 alias | Cifrar credenciales de Telegram y WhatsApp almacenadas en DynamoDB |
-| Secrets Manager   | 2 secretos del stack + 1 por aplicación cliente | Autenticación M2M y firma de JWT                                   |
-| IAM               |             12 roles de aplicación + 1 auxiliar | Mínimo privilegio por Lambda                                       |
-| CloudWatch Logs   |                                   14 log groups | Logs de Lambdas, WebSocket y recurso auxiliar                      |
-| CloudWatch Alarms |                                       6 alarmas | Detectar mensajes en las DLQ                                       |
-| SNS               |            1 topic + suscripción email opcional | Distribuir alertas operativas                                      |
-| S3 de despliegue  |            1 bucket compartido, fuera del stack | Guardar artefactos ZIP de Serverless Framework                     |
+| Servicio AWS      |                                  Cantidad base | Uso principal                                                     |
+| ----------------- | ---------------------------------------------: | ----------------------------------------------------------------- |
+| CloudFormation    |                              1 stack por stage | Desplegar y actualizar toda la infraestructura como una unidad    |
+| API Gateway v2    |                                         2 APIs | API HTTP y API WebSocket realtime                                 |
+| Lambda            |                     14 funciones de aplicación | API, webhooks, procesamiento, envío y realtime                    |
+| Lambda auxiliar   |                                      1 función | Configuración de logging de API Gateway por Serverless Framework  |
+| DynamoDB          |                                       2 tablas | Plano de control y datos de mensajes                              |
+| DynamoDB Streams  |                                       1 stream | Convertir cambios durables de mensajes en eventos realtime        |
+| SQS               |                         6 colas fuente + 6 DLQ | Desacoplamiento, orden, reintentos y recuperación                 |
+| S3                |                         1 bucket de aplicación | Imágenes y objetos de medios privados                             |
+| KMS               | 1 clave administrada por el proyecto + 1 alias | Cifrar credenciales de proveedores y OpenAI guardadas en DynamoDB |
+| Secrets Manager   |      2 secretos del stack + M2M opt-in/legados | Pepper, firma JWT y compatibilidad de consumidores internos       |
+| IAM               |            14 roles de aplicación + 1 auxiliar | Mínimo privilegio por Lambda                                      |
+| CloudWatch Logs   |                                  16 log groups | Logs de Lambdas, WebSocket y recurso auxiliar                     |
+| CloudWatch Alarms |                                      6 alarmas | Detectar mensajes en las DLQ                                      |
+| SNS               |           1 topic + suscripción email opcional | Distribuir alertas operativas                                     |
+| S3 de despliegue  |           1 bucket compartido, fuera del stack | Guardar artefactos ZIP de Serverless Framework                    |
 
 No hay recursos EC2, ECS, EKS, RDS, ElastiCache, VPC, NAT Gateway, Load Balancer ni CloudFront en
 este stack. El gateway es serverless y no depende de la red ni de la base de datos del backend
@@ -316,17 +317,13 @@ El stack expone cuatro valores para configurar el consumidor externo sin hardcod
 - `StoragiaAutomationDlqUrl`;
 - `StoragiaAutomationDlqArn`.
 
-### Estado especial de `MediaQueue`
+### Enriquecimiento en `MediaQueue`
 
-`MediaQueue`, `MediaDlq`, su output y su alarma están desplegados, pero actualmente ningún archivo
-de `src/` publica ni consume esa cola. La importación de imágenes se realiza sincrónicamente en
-`privateApi` o `inboundProcessor`.
-
-Debe tomarse una decisión explícita:
-
-- conservarla porque se implementará un `mediaWorker` próximamente; o
-- eliminar `MediaQueue`, `MediaDlq`, `MediaDlqAlarm` y `MediaQueueUrl` para reducir superficie
-  operativa.
+`inboundProcessor` publica en `MediaQueue` los trabajos de audio o imagen que una integración tenga
+habilitados. `mediaEnrichmentWorker` consume la cola estándar con respuestas parciales, lee el medio
+privado en S3 y guarda el resultado en la tabla de datos. `MediaDlq` conserva los trabajos agotados
+y `MediaDlqAlarm` alerta desde el primer mensaje. El worker incluye FFmpeg solo en su paquete para
+normalizar AAC, AMR y OGG/Opus antes de llamar a OpenAI.
 
 ## 7. S3
 
@@ -358,9 +355,11 @@ Recursos:
 - `ProviderCredentialsKey`: clave simétrica `ENCRYPT_DECRYPT` administrada por el proyecto;
 - `ProviderCredentialsKeyAlias`: alias `alias/tinkiva-messaging-provider-credentials-${stage}`.
 
-La clave cifra las credenciales de Telegram y WhatsApp antes de almacenarlas como ciphertext en
-`MessagingControlTable`. El encryption context incluye proveedor, conexión, stage y tabla, evitando
-que un ciphertext sea reutilizado fuera de su contexto esperado.
+La clave cifra las credenciales de Telegram y WhatsApp, y las credenciales de OpenAI aisladas por
+integración, antes de almacenarlas como ciphertext en `MessagingControlTable`. Las credenciales de
+proveedor usan un encryption context con proveedor, conexión, stage y tabla. OpenAI usa `stage`,
+`tableName`, `resourceType=OPENAI_CREDENTIAL`, `applicationId`, `tenantId` e `integrationId`. En
+ambos casos el contexto evita reutilizar un ciphertext fuera de su propietario esperado.
 
 Protecciones:
 
@@ -371,7 +370,7 @@ Protecciones:
 
 Esta clave no cifra el bucket S3 ni las tablas completas. S3 usa SSE-S3; DynamoDB, SQS y SNS usan
 claves administradas por sus respectivos servicios. La clave dedicada protege específicamente los
-secretos de proveedores almacenados dentro de DynamoDB.
+secretos de proveedores y OpenAI almacenados dentro de DynamoDB.
 
 ## 9. Secrets Manager
 
@@ -385,45 +384,47 @@ secretos de proveedores almacenados dentro de DynamoDB.
 No tienen rotación automática configurada. Las Lambdas mantienen valores leídos en caché durante
 cinco minutos mientras el execution environment permanece caliente.
 
-### Secretos creados por el CLI administrativo
+### Credenciales creadas por el CLI administrativo
 
-`pnpm admin:create-application` crea un secreto adicional por aplicación consumidora, normalmente:
+`pnpm admin:create-application` guarda por defecto únicamente el digest HMAC del `clientSecret` en
+DynamoDB y entrega el secreto una sola vez por stdout. El operador debe moverlo de inmediato al
+vault propio del consumidor; el gateway no puede recuperarlo.
 
-```text
-/tinkiva/messaging/${stage}/applications/${application-code}/client
-```
+`--credentials-secret-name` conserva como opt-in el modo compatible que crea un Secret de AWS con
+`applicationId`, `clientId` y `clientSecret`. Se reserva para la credencial global `PLATFORM_ADMIN`
+y consumidores internos legados. Esos Secrets no pertenecen al stack CloudFormation: tienen costo y
+ciclo de vida independientes y eliminar el stack no los elimina.
 
-Ese secreto contiene `applicationId`, `clientId` y `clientSecret`. Se crea mediante AWS SDK y no es
-un recurso del stack CloudFormation. Por eso:
+No se consolidan todos los clientes en un único JSON. Eso permitiría a cualquier consumidor con
+`GetSecretValue` leer las credenciales de los demás y uniría sus rotaciones y fallos. La estrategia
+y la migración sin corte están en
+[`guides/application-client-credentials.md`](./guides/application-client-credentials.md).
 
-- su cantidad crece con el número de aplicaciones;
-- tiene costo y ciclo de vida independientes;
-- eliminar el stack no lo elimina;
-- debe incluirse en inventarios, backups, rotación y procedimientos de baja.
-
-Las credenciales de Meta y Telegram no crean un Secret Manager secret por integración. Se cifran con
-`ProviderCredentialsKey` y se almacenan en DynamoDB, reduciendo el número de secretos cobrados por
-conexión.
+Las credenciales de Meta, Telegram y OpenAI no crean un Secrets Manager secret por integración. Se
+cifran con `ProviderCredentialsKey` y se almacenan en DynamoDB, reduciendo el número de secretos
+cobrados por conexión. El API administrativo de OpenAI nunca devuelve la clave después de recibirla.
 
 ## 10. IAM
 
 Cada Lambda de aplicación tiene un role dedicado. La intención es que una función solo pueda acceder
 a sus tablas, colas, secretos, objetos y operaciones KMS necesarias.
 
-| Role                           | Permisos principales                                                             |
-| ------------------------------ | -------------------------------------------------------------------------------- |
-| `HealthLambdaRole`             | Escribir logs                                                                    |
-| `AuthTokenLambdaRole`          | Leer ControlTable, AuthPepperSecret y JwtSigningSecret                           |
-| `ApiAuthorizerLambdaRole`      | Leer ControlTable y JwtSigningSecret                                             |
-| `PrivateApiLambdaRole`         | CRUD/transacciones en tablas, publicar outbound, KMS encrypt/decrypt, S3 get/put |
-| `TelegramWebhookLambdaRole`    | Leer integración, KMS decrypt, publicar InboundQueue                             |
-| `WhatsappWebhookLambdaRole`    | Leer integración, KMS decrypt, publicar InboundQueue, S3 get                     |
-| `InboundProcessorLambdaRole`   | Consumir InboundQueue, escribir tablas/S3, KMS decrypt                           |
-| `TelegramSenderLambdaRole`     | Consumir cola Telegram, leer/actualizar tablas, KMS decrypt, S3 get              |
-| `WhatsappSenderLambdaRole`     | Consumir cola WhatsApp, leer/actualizar tablas, KMS decrypt, S3 get              |
-| `AppEventProjectorLambdaRole`  | Leer DynamoDB Stream/S3 y publicar AppEventsQueue y StoragiaAutomationQueue      |
-| `RealtimeConnectionLambdaRole` | Mantener tickets/conexiones en ControlTable                                      |
-| `RealtimeDispatcherLambdaRole` | Consumir AppEventsQueue, consultar conexiones y ManageConnections                |
+| Role                              | Permisos principales                                                             |
+| --------------------------------- | -------------------------------------------------------------------------------- |
+| `HealthLambdaRole`                | Escribir logs                                                                    |
+| `AuthTokenLambdaRole`             | Leer ControlTable, AuthPepperSecret y JwtSigningSecret                           |
+| `ApiAuthorizerLambdaRole`         | Leer ControlTable y JwtSigningSecret                                             |
+| `PrivateApiLambdaRole`            | CRUD/transacciones en tablas, publicar outbound, KMS encrypt/decrypt, S3 get/put |
+| `TelegramWebhookLambdaRole`       | Leer integración, KMS decrypt, publicar InboundQueue                             |
+| `WhatsappWebhookLambdaRole`       | Leer integración, KMS decrypt, publicar InboundQueue, S3 get                     |
+| `InboundProcessorLambdaRole`      | Consumir InboundQueue, escribir tablas/S3, KMS decrypt                           |
+| `TelegramSenderLambdaRole`        | Consumir cola Telegram, leer/actualizar tablas, KMS decrypt, S3 get              |
+| `WhatsappSenderLambdaRole`        | Consumir cola WhatsApp, leer/actualizar tablas, KMS decrypt, S3 get              |
+| `MediaEnrichmentWorkerLambdaRole` | Consumir MediaQueue, leer ciphertext/medios, KMS decrypt y actualizar mensajes   |
+| `PlatformAdminLambdaRole`         | Administrar integraciones/chats y cifrar nuevas credenciales OpenAI con KMS      |
+| `AppEventProjectorLambdaRole`     | Leer DynamoDB Stream/S3 y publicar AppEventsQueue y StoragiaAutomationQueue      |
+| `RealtimeConnectionLambdaRole`    | Mantener tickets/conexiones en ControlTable                                      |
+| `RealtimeDispatcherLambdaRole`    | Consumir AppEventsQueue, consultar conexiones y ManageConnections                |
 
 También existe `IamRoleCustomResourcesLambdaExecution`, utilizado únicamente por la Lambda auxiliar
 de Serverless que configura logging de API Gateway.
@@ -435,9 +436,9 @@ operador que los ejecuta. Esas identidades deben gestionarse fuera de esta plant
 
 ### Logs
 
-Se crean 14 log groups:
+Se crean 16 log groups:
 
-- uno por cada una de las 12 Lambdas de aplicación;
+- uno por cada una de las 14 Lambdas de aplicación;
 - uno para API Gateway WebSocket;
 - uno para la Lambda auxiliar de Serverless Framework.
 
@@ -473,14 +474,14 @@ Actualmente no se declaran alarmas para:
 
 Además de los servicios principales, CloudFormation crea recursos de unión:
 
-- 23 `AWS::ApiGatewayV2::Route` — 19 HTTP y 4 WebSocket;
-- 6 `AWS::ApiGatewayV2::Integration`;
+- 29 `AWS::ApiGatewayV2::Route` — 25 HTTP y 4 WebSocket;
+- 7 `AWS::ApiGatewayV2::Integration`;
 - 2 stages de API Gateway;
 - 1 deployment WebSocket;
 - 1 Lambda authorizer;
 - 2 WebSocket route responses;
-- 7 permisos para que API Gateway invoque Lambdas;
-- 5 event source mappings para SQS y DynamoDB Streams;
+- 8 permisos para que API Gateway invoque Lambdas;
+- 6 event source mappings para SQS y DynamoDB Streams;
 - 1 custom resource que configura el role de CloudWatch de API Gateway.
 
 Normalmente estos recursos no se administran manualmente. Deben modificarse desde `serverless.yml` y
@@ -493,6 +494,8 @@ Aunque no son recursos AWS, determinan el tráfico y la operación del stack:
 - Telegram Bot API: validación del bot, configuración de webhook, envío y descarga de medios;
 - Meta Graph API / WhatsApp Cloud API: Embedded Signup, inspección de tokens, suscripción de WABA,
   envío de mensajes y descarga de medios;
+- OpenAI API: descripción de imágenes mediante Responses y transcripción de audio mediante
+  `/v1/audio/transcriptions`, con una credencial distinta por integración;
 - backend principal: usa `MessagingGatewayClient` con credenciales M2M;
 - consumidor de automatización de StoragIA: Nest en EC2 recibe desde `StoragiaAutomationQueue.fifo`,
   administra su propia idempotencia y extiende la visibilidad cuando un procesamiento pueda superar
@@ -508,7 +511,7 @@ consumidor, su role IAM y su lógica de automatización pertenecen al repositori
 
 - clave KMS administrada por el proyecto;
 - dos secretos base de autenticación;
-- un secreto adicional por cada aplicación consumidora;
+- el Secret global `PLATFORM_ADMIN` y Secrets M2M legados u opt-in que aún no se hayan migrado;
 - seis alarmas CloudWatch;
 - almacenamiento acumulado en S3, CloudWatch Logs y bucket de despliegue.
 
@@ -520,6 +523,7 @@ consumidor, su role IAM y su lógica de automatización pertenecen al repositori
 - requests y transferencia SQS/SNS;
 - requests, almacenamiento y transferencia S3;
 - operaciones KMS y Secrets Manager;
+- uso de modelos y transferencia hacia la API de OpenAI cuando el enriquecimiento está habilitado;
 - ingestión y almacenamiento de CloudWatch Logs;
 - salida de datos hacia internet y URLs firmadas de medios.
 
@@ -530,8 +534,8 @@ stack. Tampoco hay provisioned concurrency.
 
 ### Prioridad alta
 
-1. **Decidir el futuro de MediaQueue.** Hoy está desplegada y monitorizada, pero no tiene productor
-   ni consumidor.
+1. **Vigilar el enriquecimiento.** Alertar por antigüedad de `MediaQueue`, errores del worker y
+   mensajes que permanezcan en estado `PENDING`, además de la alarma existente sobre la DLQ.
 2. **Ampliar observabilidad.** Las DLQ están cubiertas, pero faltan alarmas de errores Lambda,
    throttling, duración, queue age, API 5xx e iterator age.
 3. **Revisar recuperación de datos.** PITR y deletion protection solo están activas en `prod`. La
@@ -545,7 +549,8 @@ stack. Tampoco hay provisioned concurrency.
 5. **Evaluar caché corta del authorizer.** El TTL actual es cero. Una caché de pocos segundos puede
    reducir invocaciones y lecturas, aceptando una demora equivalente para revocaciones.
 6. **Medir batches y concurrencia.** Los consumidores usan batches, pero no declaran reserved
-   concurrency ni maximum concurrency. Debe ajustarse con métricas y límites de Telegram/Meta.
+   concurrency ni maximum concurrency. Debe ajustarse con métricas y límites de Telegram, Meta y
+   OpenAI.
 7. **Revisar procesamiento secuencial.** Los handlers recorren cada batch secuencialmente. Puede
    paralelizarse entre `MessageGroupId` manteniendo orden dentro de cada conversación.
 8. **Vigilar retención de medios.** Los objetos `tenants/` no expiran automáticamente y pueden
@@ -553,7 +558,8 @@ stack. Tampoco hay provisioned concurrency.
 
 ### Seguridad
 
-9. **Automatizar rotación.** Los secretos base y los secretos M2M no tienen rotación automática.
+9. **Operar la rotación.** Los secretos base y M2M no tienen rotación automática; las credenciales
+   OpenAI se versionan por integración y deben rotarse desde el panel/API administrativo.
 10. **Revisar permisos no utilizados.** Por ejemplo, el role del webhook de WhatsApp incluye
     `s3:GetObject`; debe confirmarse si sigue siendo necesario.
 11. **Definir protección perimetral.** WAF, custom domain, ACM y Route 53 no forman parte de este
@@ -577,6 +583,7 @@ stack. Tampoco hay provisioned concurrency.
 | Suscripción email          | `infrastructure/serverless/subscriptions.yml`            |
 | Outputs                    | `infrastructure/serverless/outputs.yml`                  |
 | Secretos de aplicaciones   | `src/cli/create-application.ts`                          |
+| Credenciales OpenAI        | `docs/guides/openai-media-enrichment.md`                 |
 
 Este inventario describe lo administrado o utilizado por el repositorio. Para una auditoría completa
 de la cuenta AWS también deben revisarse recursos compartidos o externos al stack, como DNS,

@@ -106,6 +106,10 @@ describe("WhatsApp optional and terminal branches", () => {
           accessToken: "t".repeat(32),
           appSecret: "s".repeat(32),
           displayName: "WhatsApp",
+          inboundMedia: {
+            audioAlternativeText: false,
+            imageAlternativeText: false,
+          },
           metaAppId: "445566",
           phoneNumberId: "778899",
           wabaId: "991122",

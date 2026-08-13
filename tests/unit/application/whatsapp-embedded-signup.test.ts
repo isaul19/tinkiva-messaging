@@ -18,6 +18,10 @@ const request = {
   authorizationCode: "one-time-embedded-signup-authorization-code",
   businessPortfolioId: "111222333444555",
   displayName: "Storagia customer WhatsApp",
+  inboundMedia: {
+    audioAlternativeText: true,
+    imageAlternativeText: false,
+  },
   phoneNumberId: "1265721213282879",
   wabaId: "1373995794700687",
 };
@@ -25,6 +29,7 @@ const request = {
 const integration = {
   credentialVersion: 1,
   displayName: request.displayName,
+  inboundMedia: request.inboundMedia,
   integrationId: "int_01JEMBEDDEDSIGNUP0000000000",
   phoneNumberId: request.phoneNumberId,
   provider: "WHATSAPP" as const,
@@ -118,6 +123,7 @@ describe("WhatsApp Embedded Signup application flow", () => {
         appSecret: platformConfiguration.appSecret,
         businessPortfolioId: request.businessPortfolioId,
         displayName: request.displayName,
+        inboundMedia: request.inboundMedia,
         metaAppId: platformConfiguration.appId,
         phoneNumberId: request.phoneNumberId,
         wabaId: request.wabaId,

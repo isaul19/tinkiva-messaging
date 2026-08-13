@@ -105,6 +105,13 @@ Resources:
                   Fn::Sub: ${MessagingMediaBucket.Arn}/tenants/*
               - Effect: Allow
                 Action:
+                  - sqs:SendMessage
+                Resource:
+                  Fn::GetAtt:
+                    - MediaQueue
+                    - Arn
+              - Effect: Allow
+                Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents

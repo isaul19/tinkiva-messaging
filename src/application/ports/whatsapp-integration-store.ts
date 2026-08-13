@@ -1,3 +1,5 @@
+import type { InboundMediaSettings } from "../../contracts/api/inbound-media.contract.js";
+
 export interface CreateWhatsappIntegrationRecords {
   applicationId: string;
   businessPortfolioId?: string;
@@ -6,6 +8,7 @@ export interface CreateWhatsappIntegrationRecords {
   displayName: string;
   displayPhoneNumber?: string;
   graphApiVersion: string;
+  inboundMedia: InboundMediaSettings;
   integrationId: string;
   metaAppId: string;
   phoneNumberId: string;

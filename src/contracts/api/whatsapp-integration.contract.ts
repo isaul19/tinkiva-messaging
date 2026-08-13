@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { integrationIdSchema, tenantIdSchema } from "../shared/identifiers.js";
+import { inboundMediaSettingsSchema } from "./inbound-media.contract.js";
 
 const metaIdSchema = z.string().trim().min(1).max(120).regex(/^\d+$/);
 
@@ -10,6 +11,7 @@ export const registerWhatsappIntegrationRequestSchema = z
     appSecret: z.string().trim().min(16).max(500),
     businessPortfolioId: metaIdSchema.optional(),
     displayName: z.string().trim().min(1).max(160),
+    inboundMedia: inboundMediaSettingsSchema,
     metaAppId: metaIdSchema,
     phoneNumberId: metaIdSchema,
     wabaId: metaIdSchema,
@@ -42,6 +44,7 @@ export const whatsappIntegrationResponseSchema = z
     credentialVersion: z.number().int().positive(),
     displayName: z.string().min(1),
     displayPhoneNumber: z.string().min(1).optional(),
+    inboundMedia: inboundMediaSettingsSchema,
     integrationId: integrationIdSchema,
     phoneNumberId: z.string().min(1),
     provider: z.literal("WHATSAPP"),
@@ -56,7 +59,7 @@ export type RotateWhatsappCredentialRequest = z.infer<typeof rotateWhatsappCrede
 export type RotateWhatsappCredentialResponse = z.infer<
   typeof rotateWhatsappCredentialResponseSchema
 >;
-export type RegisterWhatsappIntegrationRequest = z.infer<
+export type RegisterWhatsappIntegrationRequest = z.input<
   typeof registerWhatsappIntegrationRequestSchema
 >;
 export type WhatsappIntegrationResponse = z.infer<typeof whatsappIntegrationResponseSchema>;

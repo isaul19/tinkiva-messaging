@@ -13,6 +13,7 @@ import {
   type RealtimeMessageEvent,
   type RealtimeMessageEventType,
 } from "../../contracts/api/realtime.contract.js";
+import { audioMimeTypeSchema } from "../../contracts/shared/audio.js";
 import { latitudeSchema, longitudeSchema } from "../../contracts/shared/location.js";
 import { s3Client } from "../../infrastructure/aws/clients.js";
 import { S3MediaStore } from "../../infrastructure/s3/s3-media-store.js";
@@ -24,11 +25,19 @@ const logger = new Logger({
   serviceName: "app-event-projector",
 });
 
+const imageMimeTypeSchema = z.enum(["image/jpeg", "image/png", "image/webp"]);
+
+const alternativeTextMetadataSchema = z.object({
+  alternativeText: z.string().trim().min(1).max(4_000).optional(),
+  alternativeTextStatus: z.enum(["FAILED", "PENDING", "READY"]).optional(),
+});
+
 const streamMessageSchema = z.looseObject({
   caption: z.string().max(1_024).optional(),
   applicationId: z.string().min(1),
   conversationId: z.string().min(1),
   direction: z.enum(["INBOUND", "OUTBOUND"]),
+  durationSeconds: z.number().int().nonnegative().optional(),
   failureCode: z.string().min(1).optional(),
   integrationId: z.string().min(1),
   latitude: latitudeSchema.optional(),
@@ -42,14 +51,16 @@ const streamMessageSchema = z.looseObject({
     .object({
       bucket: z.string().min(1),
       key: z.string().min(1),
-      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+      mimeType: z.union([audioMimeTypeSchema, imageMimeTypeSchema]),
       sha256: z.string().regex(/^[a-f0-9]{64}$/),
       sizeBytes: z.number().int().positive(),
     })
     .optional(),
+  metadata: alternativeTextMetadataSchema.optional(),
   longitude: longitudeSchema.optional(),
   text: z.string().optional(),
-  type: z.enum(["IMAGE", "LOCATION", "TEXT"]),
+  type: z.enum(["AUDIO", "IMAGE", "LOCATION", "TEXT"]),
+  voice: z.boolean().optional(),
 });
 
 export interface AppEventProjectorHandlerDependencies {
@@ -113,10 +124,23 @@ export function projectRealtimeMessageEvent(
     const previous = streamMessageSchema.safeParse(
       unmarshall(record.dynamodb.OldImage as Record<string, AttributeValue>),
     );
-    if (previous.success && previous.data.status === current.data.status) return undefined;
+    if (previous.success && previous.data.status === current.data.status) {
+      const enrichmentFinished =
+        previous.data.metadata?.alternativeTextStatus === "PENDING" &&
+        ["FAILED", "READY"].includes(current.data.metadata?.alternativeTextStatus ?? "");
+      if (!enrichmentFinished) return undefined;
+    }
   }
 
   const message = current.data;
+
+  if (
+    message.direction === "INBOUND" &&
+    (message.type === "AUDIO" || message.type === "IMAGE") &&
+    message.metadata?.alternativeTextStatus === "PENDING"
+  ) {
+    return undefined;
+  }
 
   const common = {
     conversationId: message.conversationId,
@@ -159,7 +183,39 @@ export function projectRealtimeMessageEvent(
       type: "LOCATION",
     });
   }
+  if (message.type === "AUDIO") {
+    if (message.media === undefined || message.voice === undefined || mediaSigner === undefined) {
+      return undefined;
+    }
+    const mimeType = audioMimeTypeSchema.safeParse(message.media.mimeType);
+    if (!mimeType.success) return undefined;
+    const storedMedia = message.media;
+    const voice = message.voice;
+    return mediaSigner.temporaryDownloadUrl(storedMedia).then((url) =>
+      buildEvent({
+        ...common,
+        ...(message.caption === undefined ? {} : { caption: message.caption }),
+        ...(message.durationSeconds === undefined
+          ? {}
+          : { durationSeconds: message.durationSeconds }),
+        media: {
+          mediaId: storedMedia.key,
+          mimeType: mimeType.data,
+          sha256: storedMedia.sha256,
+          sizeBytes: storedMedia.sizeBytes,
+          url,
+        },
+        ...(message.direction !== "INBOUND" || message.metadata?.alternativeText === undefined
+          ? {}
+          : { metadata: { alternativeText: message.metadata.alternativeText } }),
+        type: "AUDIO",
+        voice,
+      }),
+    );
+  }
   if (message.media === undefined || mediaSigner === undefined) return undefined;
+  const mimeType = imageMimeTypeSchema.safeParse(message.media.mimeType);
+  if (!mimeType.success) return undefined;
   const storedMedia = message.media;
   return mediaSigner.temporaryDownloadUrl(storedMedia).then((url) =>
     buildEvent({
@@ -167,11 +223,14 @@ export function projectRealtimeMessageEvent(
       ...(message.caption === undefined ? {} : { caption: message.caption }),
       media: {
         mediaId: storedMedia.key,
-        mimeType: storedMedia.mimeType,
+        mimeType: mimeType.data,
         sha256: storedMedia.sha256,
         sizeBytes: storedMedia.sizeBytes,
         url,
       },
+      ...(message.direction !== "INBOUND" || message.metadata?.alternativeText === undefined
+        ? {}
+        : { metadata: { alternativeText: message.metadata.alternativeText } }),
       type: "IMAGE",
     }),
   );

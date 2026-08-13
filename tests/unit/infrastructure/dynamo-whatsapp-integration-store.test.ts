@@ -4,7 +4,50 @@ import { describe, expect, it, vi } from "vitest";
 
 import { DynamoWhatsappIntegrationStore } from "../../../src/infrastructure/dynamodb/dynamo-whatsapp-integration-store.js";
 
+const persistedIntegration = (send: ReturnType<typeof vi.fn>) => {
+  const command = send.mock.calls[0]?.[0] as TransactWriteCommand | undefined;
+  return command?.input.TransactItems?.map((item) => item.Put?.Item).find(
+    (item) => item?.entityType === "CHANNEL_INTEGRATION",
+  );
+};
+
 describe("DynamoWhatsappIntegrationStore", () => {
+  it("persists inbound media settings on the integration metadata", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const store = new DynamoWhatsappIntegrationStore(
+      { send } as unknown as DynamoDBDocumentClient,
+      "messaging-control-test",
+    );
+
+    await store.createPending({
+      applicationId: "app_test",
+      createdAt: "2026-07-28T00:00:00.000Z",
+      credentialRef: "pc_test",
+      displayName: "WhatsApp test",
+      graphApiVersion: "v25.0",
+      inboundMedia: {
+        audioAlternativeText: false,
+        imageAlternativeText: true,
+      },
+      integrationId: "int_test",
+      metaAppId: "445566",
+      phoneNumberId: "778899",
+      providerConnectionId: "pc_test",
+      tenantId: "tenant_test",
+      wabaId: "991122",
+      webhookKey: "webhook_test",
+      webhookUrl: "https://example.test/webhooks/whatsapp/webhook_test",
+    });
+
+    expect(persistedIntegration(send)).toMatchObject({
+      inboundMedia: {
+        audioAlternativeText: false,
+        imageAlternativeText: true,
+      },
+      integrationId: "int_test",
+    });
+  });
+
   it("deletes every pending record with ownership conditions so registration can retry", async () => {
     const commands: unknown[] = [];
     const send = vi.fn((command: unknown) => {

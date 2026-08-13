@@ -2,34 +2,19 @@
 
 The initial in-repository SDK is exported from `src/sdk/index.ts`. It acquires and caches a
 short-lived JWT, validates gateway responses, sends the idempotency header, and never requires a
-provider credential.
+provider credential. New applications receive their Messaging client secret once and must place it
+in the consuming backend's existing credential vault.
 
 ```ts
-import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
-
 import { MessagingGatewayClient } from "./src/sdk/index.js";
 
-const secrets = new SecretsManagerClient({ region: "us-east-1" });
+// Implement this adapter with the consumer's own vault or runtime configuration.
+const credential = await loadMessagingClientCredentialFromConsumerVault();
 
 const messaging = new MessagingGatewayClient({
-  clientId: "msgc_...",
+  clientId: credential.clientId,
   gatewayUrl: "https://2myga1gnfl.execute-api.us-east-1.amazonaws.com",
-  getClientSecret: async () => {
-    const result = await secrets.send(
-      new GetSecretValueCommand({
-        SecretId: "/tinkiva/messaging/dev/applications/storagia/client",
-      }),
-    );
-    const credentials = JSON.parse(result.SecretString ?? "{}") as {
-      clientSecret?: string;
-    };
-
-    if (credentials.clientSecret === undefined) {
-      throw new Error("Messaging client secret is missing.");
-    }
-
-    return credentials.clientSecret;
-  },
+  getClientSecret: async () => credential.clientSecret,
 });
 
 const tenant = await messaging.ensureTenant(
@@ -44,8 +29,11 @@ const tenant = await messaging.ensureTenant(
 );
 ```
 
-Only backend services may use the application client secret. A consuming AWS workload should receive
-`secretsmanager:GetSecretValue` only for its own credentials secret.
+Only backend services may use the application client secret. If a legacy AWS consumer still uses a
+dedicated Secrets Manager entry, its workload must receive `secretsmanager:GetSecretValue` only for
+that exact Secret ARN, never `/applications/*`. The Storagia example path remains operational during
+the migration documented in
+[`application-client-credentials.md`](./application-client-credentials.md).
 
 ## Conversation inbox
 

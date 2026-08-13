@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { inboundMediaSettingsSchema } from "./inbound-media.contract.js";
 import { whatsappIntegrationResponseSchema } from "./whatsapp-integration.contract.js";
 
 const metaIdSchema = z.string().trim().min(1).max(120).regex(/^\d+$/);
@@ -18,6 +19,7 @@ export const completeWhatsappEmbeddedSignupRequestSchema = z
     authorizationCode: z.string().trim().min(10).max(4_096),
     businessPortfolioId: metaIdSchema.optional(),
     displayName: z.string().trim().min(1).max(160),
+    inboundMedia: inboundMediaSettingsSchema,
     phoneNumberId: metaIdSchema,
     wabaId: metaIdSchema,
   })
@@ -25,7 +27,7 @@ export const completeWhatsappEmbeddedSignupRequestSchema = z
 
 export const completeWhatsappEmbeddedSignupResponseSchema = whatsappIntegrationResponseSchema;
 
-export type CompleteWhatsappEmbeddedSignupRequest = z.infer<
+export type CompleteWhatsappEmbeddedSignupRequest = z.input<
   typeof completeWhatsappEmbeddedSignupRequestSchema
 >;
 export type CompleteWhatsappEmbeddedSignupResponse = z.infer<

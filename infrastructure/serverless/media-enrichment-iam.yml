@@ -1,0 +1,80 @@
+Resources:
+  MediaEnrichmentWorkerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tinkiva-messaging-media-enrichment-${sls:stage}
+      Description: Generates OpenAI descriptions and transcriptions for inbound media.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: enrich-inbound-media
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource:
+                  Fn::GetAtt:
+                    - MediaQueue
+                    - Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource:
+                  Fn::GetAtt:
+                    - MessagingControlTable
+                    - Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                Resource:
+                  Fn::GetAtt:
+                    - MessagingDataTable
+                    - Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:ConditionCheckItem
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - Fn::GetAtt:
+                      - MessagingControlTable
+                      - Arn
+                  - Fn::GetAtt:
+                      - MessagingDataTable
+                      - Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  Fn::Sub: ${MessagingMediaBucket.Arn}/tenants/*
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource:
+                  Fn::GetAtt:
+                    - ProviderCredentialsKey
+                    - Arn
+                Condition:
+                  StringEquals:
+                    "kms:EncryptionContext:stage": ${sls:stage}
+                    "kms:EncryptionContext:resourceType": OPENAI_CREDENTIAL
+                    "kms:EncryptionContext:tableName":
+                      Ref: MessagingControlTable
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${self:service}-${sls:stage}-mediaEnrichmentWorker:*

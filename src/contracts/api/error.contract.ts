@@ -3,6 +3,8 @@ import { z } from "zod";
 import { correlationIdSchema } from "../shared/identifiers.js";
 
 export const publicErrorCodeSchema = z.enum([
+  "ADMIN_CONFIRMATION_INVALID",
+  "ADMIN_ROUTE_NOT_FOUND",
   "AUTH_INVALID_CLIENT",
   "AUTH_CLIENT_DISABLED",
   "AUTH_INVALID_TOKEN",
@@ -11,6 +13,8 @@ export const publicErrorCodeSchema = z.enum([
   "TENANT_ACCESS_DENIED",
   "INTEGRATION_NOT_FOUND",
   "INTEGRATION_DISABLED",
+  "OPENAI_CREDENTIAL_REQUIRED",
+  "OPENAI_CREDENTIAL_VERSION_CONFLICT",
   "PROVIDER_CREDENTIAL_INVALID",
   "PROVIDER_CREDENTIAL_VERSION_CONFLICT",
   "PROVIDER_CONFIGURATION_INVALID",

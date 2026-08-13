@@ -10,6 +10,10 @@ const request = {
   appSecret: "app-secret-".padEnd(32, "s"),
   businessPortfolioId: "112233",
   displayName: "WhatsApp Ventas",
+  inboundMedia: {
+    audioAlternativeText: false,
+    imageAlternativeText: true,
+  },
   metaAppId: "445566",
   phoneNumberId: "778899",
   wabaId: "991122",
@@ -80,6 +84,7 @@ describe("RegisterWhatsappIntegration", () => {
     expect(result).toMatchObject({
       displayName: request.displayName,
       displayPhoneNumber: "+57 300 000 0000",
+      inboundMedia: request.inboundMedia,
       phoneNumberId: request.phoneNumberId,
       provider: "WHATSAPP",
       status: "ACTIVE",
@@ -121,6 +126,9 @@ describe("RegisterWhatsappIntegration", () => {
       expect.any(String),
       "ACTIVE",
       expect.any(String),
+    );
+    expect(dependencies.store.createPending).toHaveBeenCalledWith(
+      expect.objectContaining({ inboundMedia: request.inboundMedia }),
     );
     expect(dependencies.store.deletePending).not.toHaveBeenCalled();
   });

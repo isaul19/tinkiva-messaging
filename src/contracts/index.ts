@@ -1,4 +1,5 @@
 export * from "./api/conversation.contract.js";
+export * from "./api/inbound-media.contract.js";
 export * from "./api/realtime.contract.js";
 export {
   publicErrorCodeSchema,

@@ -6,6 +6,7 @@ import { BatchWriteCommand, DeleteCommand, GetCommand, QueryCommand } from "@aws
 import { z } from "zod";
 
 import type { ConversationStore } from "../../application/ports/conversation-store.js";
+import type { MediaObjectDeleter, MediaReference } from "../../application/ports/media.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
 
 interface DeleteWrite {
@@ -24,20 +25,40 @@ const storedMessageSchema = z.looseObject({
   conversationId: z.string().min(1),
   integrationId: z.string().min(1),
   messageId: z.string().min(1),
+  media: z
+    .object({
+      bucket: z.string().min(1),
+      key: z.string().min(1),
+      mimeType: z.string().min(1),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      sizeBytes: z.number().int().positive(),
+    })
+    .optional(),
   provider: z.enum(["TELEGRAM", "WHATSAPP"]),
   providerMessageId: z.string().min(1).optional(),
   tenantId: z.string().min(1),
 });
 
+const MESSAGES_PER_DELETION_PAGE = 25;
+
+export type ConversationDeletionPageStatus = "COMPLETED" | "IN_PROGRESS";
+
 export class DynamoConversationStore implements ConversationStore {
   readonly #client: DynamoDBDocumentClient;
   readonly #controlTable: string;
   readonly #dataTable: string;
+  readonly #media: MediaObjectDeleter | undefined;
 
-  public constructor(client: DynamoDBDocumentClient, controlTable: string, dataTable: string) {
+  public constructor(
+    client: DynamoDBDocumentClient,
+    controlTable: string,
+    dataTable: string,
+    media?: MediaObjectDeleter,
+  ) {
     this.#client = client;
     this.#controlTable = controlTable;
     this.#dataTable = dataTable;
+    this.#media = media;
   }
 
   public async deleteConversation(input: {
@@ -45,107 +66,129 @@ export class DynamoConversationStore implements ConversationStore {
     conversationId: string;
     tenantId: string;
   }): Promise<void> {
-    for (;;) {
-      const conversation = await this.#getConversation(input.conversationId);
-
-      if (conversation === undefined) return;
-      if (
-        conversation.applicationId !== input.applicationId ||
-        conversation.tenantId !== input.tenantId
-      ) {
-        throw conversationNotFoundError();
-      }
-      if (typeof conversation.lastMessageAt !== "string") {
-        throw new Error("Conversation metadata is inconsistent.");
-      }
-
-      await this.#deleteStoredMessages(input);
-
-      try {
-        await this.#client.send(
-          new DeleteCommand({
-            ConditionExpression:
-              "applicationId = :applicationId AND tenantId = :tenantId " +
-              "AND lastMessageAt = :lastMessageAt",
-            ExpressionAttributeValues: {
-              ":applicationId": input.applicationId,
-              ":lastMessageAt": conversation.lastMessageAt,
-              ":tenantId": input.tenantId,
-            },
-            Key: {
-              PK: `CONVERSATION#${input.conversationId}`,
-              SK: "META",
-            },
-            TableName: this.#controlTable,
-          }),
-        );
-        return;
-      } catch (error) {
-        if (!(error instanceof ConditionalCheckFailedException)) throw error;
-      }
+    while ((await this.deleteConversationPage(input)) === "IN_PROGRESS") {
+      // The public deletion keeps its existing all-or-nothing behavior. Administrative purges
+      // call the bounded page method directly so an API request cannot be monopolized by one chat.
     }
   }
 
-  async #deleteStoredMessages(input: {
+  public async deleteConversationPage(input: {
     applicationId: string;
     conversationId: string;
     tenantId: string;
-  }): Promise<void> {
-    const partitionKey = `CONVERSATION#${input.conversationId}`;
+  }): Promise<ConversationDeletionPageStatus> {
+    const conversation = await this.#getConversation(input.conversationId);
 
-    for (;;) {
-      const response = await this.#client.send(
-        new QueryCommand({
-          ConsistentRead: true,
+    if (conversation === undefined) return "COMPLETED";
+    if (
+      conversation.applicationId !== input.applicationId ||
+      conversation.tenantId !== input.tenantId
+    ) {
+      throw conversationNotFoundError();
+    }
+    const lastMessageAt = conversation.lastMessageAt;
+    if (typeof lastMessageAt !== "string")
+      throw new Error("Conversation metadata is inconsistent.");
+
+    const hasMoreMessages = await this.#deleteStoredMessagePage(input);
+    if (hasMoreMessages) return "IN_PROGRESS";
+
+    try {
+      await this.#client.send(
+        new DeleteCommand({
+          ConditionExpression:
+            "applicationId = :applicationId AND tenantId = :tenantId " +
+            "AND lastMessageAt = :lastMessageAt",
           ExpressionAttributeValues: {
-            ":messagePrefix": "MESSAGE#",
-            ":partitionKey": partitionKey,
+            ":applicationId": input.applicationId,
+            ":lastMessageAt": lastMessageAt,
+            ":tenantId": input.tenantId,
           },
-          KeyConditionExpression: "PK = :partitionKey AND begins_with(SK, :messagePrefix)",
-          ProjectionExpression:
-            "PK, SK, applicationId, conversationId, integrationId, messageId, " +
-            "provider, providerMessageId, tenantId",
-          TableName: this.#dataTable,
+          Key: {
+            PK: `CONVERSATION#${input.conversationId}`,
+            SK: "META",
+          },
+          TableName: this.#controlTable,
         }),
       );
-      const messages = z.array(storedMessageSchema).parse(response.Items ?? []);
+      return "COMPLETED";
+    } catch (error) {
+      if (!(error instanceof ConditionalCheckFailedException)) throw error;
+      return "IN_PROGRESS";
+    }
+  }
 
-      if (messages.length === 0) return;
+  async #deleteStoredMessagePage(input: {
+    applicationId: string;
+    conversationId: string;
+    tenantId: string;
+  }): Promise<boolean> {
+    const partitionKey = `CONVERSATION#${input.conversationId}`;
+    const response = await this.#client.send(
+      new QueryCommand({
+        ConsistentRead: true,
+        ExpressionAttributeValues: {
+          ":messagePrefix": "MESSAGE#",
+          ":partitionKey": partitionKey,
+        },
+        KeyConditionExpression: "PK = :partitionKey AND begins_with(SK, :messagePrefix)",
+        Limit: MESSAGES_PER_DELETION_PAGE,
+        ProjectionExpression:
+          "PK, SK, applicationId, conversationId, integrationId, messageId, " +
+          "media, provider, providerMessageId, tenantId",
+        TableName: this.#dataTable,
+      }),
+    );
+    const messages = z.array(storedMessageSchema).parse(response.Items ?? []);
+    const messageWrites = new Map<string, DeleteWrite>();
+    const referenceWrites = new Map<string, DeleteWrite>();
+    const media: MediaReference[] = [];
+    const addDelete = (writes: Map<string, DeleteWrite>, PK: string, SK: string): void => {
+      writes.set(`${PK}\u0000${SK}`, {
+        DeleteRequest: {
+          Key: { PK, SK },
+        },
+      });
+    };
 
-      const writes = new Map<string, DeleteWrite>();
-      const addDelete = (PK: string, SK: string): void => {
-        writes.set(`${PK}\u0000${SK}`, {
-          DeleteRequest: {
-            Key: { PK, SK },
-          },
-        });
-      };
-
-      for (const message of messages) {
-        if (
-          message.PK !== partitionKey ||
-          message.applicationId !== input.applicationId ||
-          message.conversationId !== input.conversationId ||
-          message.tenantId !== input.tenantId
-        ) {
-          throw new Error("Conversation message metadata is inconsistent.");
-        }
-
-        addDelete(message.PK, message.SK);
-        addDelete(`MESSAGE#${message.messageId}`, "REF");
-
-        if (message.providerMessageId !== undefined) {
-          addDelete(
-            `PROVIDER_MESSAGE#${message.provider}#${message.integrationId}#${sha256(
-              message.providerMessageId,
-            )}`,
-            "REF",
-          );
-        }
+    for (const message of messages) {
+      if (
+        message.PK !== partitionKey ||
+        message.applicationId !== input.applicationId ||
+        message.conversationId !== input.conversationId ||
+        message.tenantId !== input.tenantId
+      ) {
+        throw new Error("Conversation message metadata is inconsistent.");
       }
 
-      await this.#batchDelete([...writes.values()]);
+      addDelete(messageWrites, message.PK, message.SK);
+      if (message.media !== undefined) media.push(message.media);
+      addDelete(referenceWrites, `MESSAGE#${message.messageId}`, "REF");
+
+      if (message.providerMessageId !== undefined) {
+        addDelete(
+          referenceWrites,
+          `PROVIDER_MESSAGE#${message.provider}#${message.integrationId}#${sha256(
+            message.providerMessageId,
+          )}`,
+          "REF",
+        );
+      }
     }
+
+    if (media.length > 0) {
+      await this.#media?.deleteMedia({
+        applicationId: input.applicationId,
+        media,
+        tenantId: input.tenantId,
+      });
+    }
+    // Delete reconstructable secondary references before their source messages. A retry can
+    // then always derive any unfinished work from the still-present source rows.
+    await this.#batchDelete([...referenceWrites.values()]);
+    await this.#batchDelete([...messageWrites.values()]);
+
+    return response.LastEvaluatedKey !== undefined;
   }
 
   async #batchDelete(writes: DeleteWrite[]): Promise<void> {

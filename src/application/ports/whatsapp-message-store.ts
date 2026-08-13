@@ -17,8 +17,15 @@ export interface PersistWhatsappTextMessage {
 }
 
 export interface PersistWhatsappImageMessage extends Omit<PersistWhatsappTextMessage, "text"> {
+  alternativeTextRequested?: boolean;
   caption?: string;
   media: MediaReference;
+}
+
+export interface PersistWhatsappAudioMessage extends Omit<PersistWhatsappTextMessage, "text"> {
+  alternativeTextRequested?: boolean;
+  media: MediaReference;
+  voice: boolean;
 }
 
 export interface PersistWhatsappLocationMessage extends Omit<PersistWhatsappTextMessage, "text"> {
@@ -36,6 +43,7 @@ export interface PersistWhatsappStatus {
 }
 
 export interface WhatsappMessageStore {
+  persistAudioMessage?(input: PersistWhatsappAudioMessage): Promise<"CREATED" | "DUPLICATE">;
   persistImageMessage?(input: PersistWhatsappImageMessage): Promise<"CREATED" | "DUPLICATE">;
   persistLocationMessage?(input: PersistWhatsappLocationMessage): Promise<"CREATED" | "DUPLICATE">;
   persistStatus(input: PersistWhatsappStatus): Promise<"IGNORED" | "UPDATED" | "DUPLICATE">;

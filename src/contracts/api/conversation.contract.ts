@@ -6,6 +6,7 @@ import {
   messageIdSchema,
   tenantIdSchema,
 } from "../shared/identifiers.js";
+import { audioMimeTypeSchema } from "../shared/audio.js";
 import { latitudeSchema, longitudeSchema } from "../shared/location.js";
 import { providerSchema } from "./message.contract.js";
 
@@ -39,36 +40,75 @@ const conversationMessageBaseSchema = z.object({
   status: messageDeliveryStatusSchema,
 });
 
-export const conversationMessageSchema = z.discriminatedUnion("type", [
-  conversationMessageBaseSchema
-    .extend({
-      text: z.string(),
-      type: z.literal("TEXT"),
-    })
-    .strict(),
-  conversationMessageBaseSchema
-    .extend({
-      caption: z.string().max(1_024).optional(),
-      media: z
-        .object({
-          mediaId: z.string().min(1).max(1_024),
-          mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
-          sha256: z.string().regex(/^[a-f0-9]{64}$/),
-          sizeBytes: z.number().int().positive(),
-          url: z.url(),
-        })
-        .strict(),
-      type: z.literal("IMAGE"),
-    })
-    .strict(),
-  conversationMessageBaseSchema
-    .extend({
-      latitude: latitudeSchema,
-      longitude: longitudeSchema,
-      type: z.literal("LOCATION"),
-    })
-    .strict(),
-]);
+const alternativeTextMetadataSchema = z
+  .object({
+    alternativeText: z.string().trim().min(1).max(4_000),
+  })
+  .strict();
+
+export const conversationMessageSchema = z
+  .discriminatedUnion("type", [
+    conversationMessageBaseSchema
+      .extend({
+        text: z.string(),
+        type: z.literal("TEXT"),
+      })
+      .strict(),
+    conversationMessageBaseSchema
+      .extend({
+        caption: z.string().max(1_024).optional(),
+        durationSeconds: z.number().int().nonnegative().optional(),
+        media: z
+          .object({
+            mediaId: z.string().min(1).max(1_024),
+            mimeType: audioMimeTypeSchema,
+            sha256: z.string().regex(/^[a-f0-9]{64}$/),
+            sizeBytes: z.number().int().positive(),
+            url: z.url(),
+          })
+          .strict(),
+        metadata: alternativeTextMetadataSchema.optional(),
+        type: z.literal("AUDIO"),
+        voice: z.boolean(),
+      })
+      .strict(),
+    conversationMessageBaseSchema
+      .extend({
+        caption: z.string().max(1_024).optional(),
+        media: z
+          .object({
+            mediaId: z.string().min(1).max(1_024),
+            mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+            sha256: z.string().regex(/^[a-f0-9]{64}$/),
+            sizeBytes: z.number().int().positive(),
+            url: z.url(),
+          })
+          .strict(),
+        metadata: alternativeTextMetadataSchema.optional(),
+        type: z.literal("IMAGE"),
+      })
+      .strict(),
+    conversationMessageBaseSchema
+      .extend({
+        latitude: latitudeSchema,
+        longitude: longitudeSchema,
+        type: z.literal("LOCATION"),
+      })
+      .strict(),
+  ])
+  .superRefine((message, context) => {
+    if (
+      message.direction === "OUTBOUND" &&
+      "metadata" in message &&
+      message.metadata !== undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Alternative text metadata is only valid for inbound media.",
+        path: ["metadata"],
+      });
+    }
+  });
 
 export const conversationListItemSchema = z
   .object({

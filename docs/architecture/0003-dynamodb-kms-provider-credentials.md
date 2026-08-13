@@ -80,6 +80,34 @@ existing ciphertext is not made permanently unreadable by an accidental stack de
 Credential rotation must write a newly encrypted version and update the provider webhook when
 required. Operators must not edit ciphertext directly.
 
+## Extension: OpenAI credentials per integration
+
+On 2026-08-12 the same application-layer encryption boundary was extended to OpenAI credentials,
+without reusing the provider-connection item shape. Each messaging integration owns at most one
+record:
+
+```text
+PK=INTEGRATION#{integrationId}
+SK=OPENAI_CREDENTIAL
+```
+
+Its `credentialCiphertext` contains `{apiKey, organization?, project?}` and uses this mandatory
+context:
+
+```text
+applicationId={applicationId}
+integrationId={integrationId}
+resourceType=OPENAI_CREDENTIAL
+stage={stage}
+tableName={controlTableName}
+tenantId={tenantId}
+```
+
+Only `platformAdmin` may call `kms:Encrypt`; it cannot decrypt. Only `mediaEnrichmentWorker` may
+call `kms:Decrypt`. Both permissions are scoped to `ProviderCredentialsKey` and to the fixed stage,
+table and resource-type context. Neither role has Secrets Manager access for OpenAI. The panel and
+API expose only configured/version/timestamp metadata, never plaintext or ciphertext.
+
 ## Reproduction
 
 The resource is declared in

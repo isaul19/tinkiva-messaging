@@ -1,7 +1,10 @@
-import { ulid } from "ulid";
+import { createHash } from "node:crypto";
 
 import type { InboundImageImporter } from "../ports/media.js";
+import type { ResolveInboundMediaEnrichment } from "../media/resolve-inbound-media-enrichment.js";
 import type {
+  PersistWhatsappAudioMessage,
+  PersistWhatsappImageMessage,
   PersistWhatsappTextMessage,
   WhatsappMessageStore,
 } from "../ports/whatsapp-message-store.js";
@@ -17,8 +20,14 @@ export interface ProcessWhatsappEventResult {
 export class ProcessWhatsappEvent {
   readonly #messages: WhatsappMessageStore;
   readonly #media: InboundImageImporter | undefined;
+  readonly #enrichment: Pick<ResolveInboundMediaEnrichment, "requested"> | undefined;
 
-  public constructor(messages: WhatsappMessageStore, media?: InboundImageImporter) {
+  public constructor(
+    messages: WhatsappMessageStore,
+    media?: InboundImageImporter,
+    enrichment?: Pick<ResolveInboundMediaEnrichment, "requested">,
+  ) {
+    this.#enrichment = enrichment;
     this.#media = media;
     this.#messages = messages;
   }
@@ -32,6 +41,7 @@ export class ProcessWhatsappEvent {
     const { contact, message } = envelope.payload;
 
     if (
+      (message.type !== "audio" || message.audio === undefined) &&
       (message.type !== "text" || message.text?.body === undefined) &&
       (message.type !== "image" || message.image === undefined) &&
       (message.type !== "location" || message.location === undefined)
@@ -44,7 +54,7 @@ export class ProcessWhatsappEvent {
     const canonicalType =
       bsuid === undefined ? ("WHATSAPP_PHONE" as const) : ("WHATSAPP_BSUID" as const);
     const canonicalValue = bsuid ?? phone ?? message.from;
-    const messageId = `msg_${ulid()}`;
+    const messageId = deterministicMessageId(integrationId, message.id);
     const common = {
       applicationId,
       ...(bsuid === undefined ? {} : { bsuid }),
@@ -60,7 +70,17 @@ export class ProcessWhatsappEvent {
       ...(contact?.username === undefined ? {} : { username: contact.username }),
     };
     let result: "CREATED" | "DUPLICATE";
-    if (message.type === "text" && message.text?.body !== undefined) {
+    if (message.type === "audio" && message.audio !== undefined) {
+      result = await this.#persistAudio({
+        audio: {
+          id: message.audio.id,
+          ...(message.audio.mime_type === undefined ? {} : { mime_type: message.audio.mime_type }),
+          ...(message.audio.sha256 === undefined ? {} : { sha256: message.audio.sha256 }),
+          ...(message.audio.voice === undefined ? {} : { voice: message.audio.voice }),
+        },
+        common,
+      });
+    } else if (message.type === "text" && message.text?.body !== undefined) {
       result = await this.#messages.persistTextMessage({ ...common, text: message.text.body });
     } else if (message.type === "location" && message.location !== undefined) {
       if (this.#messages.persistLocationMessage === undefined) return { result: "IGNORED" };
@@ -86,6 +106,40 @@ export class ProcessWhatsappEvent {
     return { result };
   }
 
+  async #persistAudio(input: {
+    audio: {
+      id: string;
+      mime_type?: string;
+      sha256?: string;
+      voice?: boolean;
+    };
+    common: Omit<PersistWhatsappTextMessage, "text">;
+  }): Promise<"CREATED" | "DUPLICATE"> {
+    if (
+      this.#media?.importWhatsappAudio === undefined ||
+      this.#messages.persistAudioMessage === undefined
+    ) {
+      throw new Error("WhatsApp audio processing is not configured.");
+    }
+    const media = await this.#media.importWhatsappAudio({
+      applicationId: input.common.applicationId,
+      integrationId: input.common.integrationId,
+      mediaId: input.audio.id,
+      messageId: input.common.messageId,
+      ...(input.audio.mime_type === undefined ? {} : { mimeType: input.audio.mime_type }),
+      ...(input.audio.sha256 === undefined ? {} : { providerSha256: input.audio.sha256 }),
+      tenantId: input.common.tenantId,
+    });
+    return this.#persistMedia(
+      {
+        ...input.common,
+        media,
+        voice: input.audio.voice ?? false,
+      },
+      "AUDIO",
+    );
+  }
+
   async #persistImage(input: {
     common: Omit<PersistWhatsappTextMessage, "text">;
     image: {
@@ -107,11 +161,54 @@ export class ProcessWhatsappEvent {
       ...(input.image.sha256 === undefined ? {} : { providerSha256: input.image.sha256 }),
       tenantId: input.common.tenantId,
     });
-    return this.#messages.persistImageMessage({
-      ...input.common,
-      ...(input.image.caption === undefined ? {} : { caption: input.image.caption }),
-      media,
-    });
+    return this.#persistMedia(
+      {
+        ...input.common,
+        ...(input.image.caption === undefined ? {} : { caption: input.image.caption }),
+        media,
+      },
+      "IMAGE",
+    );
+  }
+
+  async #persistMedia(
+    input: PersistWhatsappAudioMessage | PersistWhatsappImageMessage,
+    type: "AUDIO" | "IMAGE",
+  ): Promise<"CREATED" | "DUPLICATE"> {
+    const conversationId = `conv_${createHash("sha256")
+      .update(
+        `WHATSAPP:${input.integrationId}:${input.canonicalType}:${input.canonicalValue}`,
+        "utf8",
+      )
+      .digest("base64url")
+      .slice(0, 32)}`;
+    const job = {
+      applicationId: input.applicationId,
+      ...("caption" in input ? { caption: input.caption } : {}),
+      conversationId,
+      integrationId: input.integrationId,
+      media: input.media,
+      messageId: input.messageId,
+      messageSortKey: `MESSAGE#${input.occurredAt}#${input.messageId}`,
+      tenantId: input.tenantId,
+      type,
+    };
+    const alternativeTextRequested = (await this.#enrichment?.requested(job)) ?? false;
+    let result: "CREATED" | "DUPLICATE";
+    if (type === "AUDIO" && "voice" in input) {
+      if (this.#messages.persistAudioMessage === undefined) {
+        throw new Error("WhatsApp audio processing is not configured.");
+      }
+      result = await this.#messages.persistAudioMessage({ ...input, alternativeTextRequested });
+    } else if (type === "IMAGE" && !("voice" in input)) {
+      if (this.#messages.persistImageMessage === undefined) {
+        throw new Error("WhatsApp image processing is not configured.");
+      }
+      result = await this.#messages.persistImageMessage({ ...input, alternativeTextRequested });
+    } else {
+      throw new Error("WhatsApp media enrichment type is inconsistent.");
+    }
+    return result;
   }
 
   public async processStatus(
@@ -140,6 +237,12 @@ const resolvePhone = (contactWaId: string | undefined, senderId: string): string
 
   return /^\d+$/.test(normalized) ? normalized : undefined;
 };
+
+const deterministicMessageId = (integrationId: string, providerMessageId: string): string =>
+  `msg_${createHash("sha256")
+    .update(`WHATSAPP:${integrationId}:${providerMessageId}`, "utf8")
+    .digest("base64url")
+    .slice(0, 32)}`;
 
 const required = (value: string | undefined, fieldName: string): string => {
   if (value === undefined) {

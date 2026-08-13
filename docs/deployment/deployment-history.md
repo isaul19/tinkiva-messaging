@@ -1,5 +1,74 @@
 # Deployment history
 
+## 2026-08-12 — OpenAI inbound media enrichment and platform administration
+
+- Operator: Codex using AWS user `saul`.
+- Stage: `dev`; region: `us-east-1`; account: `160358212333`.
+- Stack: `tinkiva-messaging-gateway-dev`.
+- Final status: `UPDATE_COMPLETE`.
+- AWS update time: `2026-08-12T19:34:31.004000+00:00`.
+
+### Added
+
+- Per-integration, default-off audio transcription and image alternative text for inbound Telegram
+  and WhatsApp messages using the OpenAI API.
+- Dedicated asynchronous media worker, SQS queue/DLQ, per-integration OpenAI credentials encrypted
+  with KMS in DynamoDB, tenant/application media ownership checks, and retry-safe enrichment
+  publication.
+- `gpt-5.6-luna` Responses image analysis with `store: false` and `gpt-4o-mini-transcribe` file
+  transcription; AAC, AMR, and OGG inputs are normalized with the packaged Linux ARM64 FFmpeg
+  binary.
+- Platform administration HTML at `/admin` plus `platform:admin`-protected APIs for listing
+  integrations, counting chats, changing media settings, deleting chats, and deleting local
+  integrations with their chats.
+- BYOK credential controls and protected PUT/DELETE APIs for creating, rotating, and removing each
+  integration's OpenAI project credential without returning either plaintext or ciphertext.
+- Resumable administrative deletion pages that remove dependent references/media before source
+  records and require a strongly consistent final conversation scan.
+
+### Verification
+
+- `pnpm verify`: 85 test files and 252 tests passed.
+- Coverage: 93.02% statements, 80.88% branches, 95.60% functions, and 93.73% lines.
+- `pnpm package`: 133 logical resources and all infrastructure validators passed; exactly the two
+  base authentication secrets remain, and the media worker package contains an ELF64 AArch64 FFmpeg
+  binary only in that Lambda artifact.
+- The media worker is `Active` with `LastUpdateStatus=Successful`, Node.js 22, ARM64, 1,024 MB, and
+  a 120-second timeout. Its queue mapping is enabled with batch size 2, partial-batch responses, a
+  720-second visibility timeout, and zero visible or in-flight messages after deployment.
+- Live `/health` returned `200`; `/admin` returned hardened HTML with CSP and `no-store`; anonymous
+  access to both credential mutation routes returned `401`.
+- The deployed admin role can encrypt but not decrypt OpenAI credentials; the worker can decrypt but
+  not encrypt them. Both are scoped to the provider-credentials KMS key and the `OPENAI_CREDENTIAL`
+  encryption context, with no Secrets Manager permission.
+- A strongly consistent scan found zero OpenAI credential records after deployment. All four
+  existing integrations remain active with both media-enrichment options disabled.
+- Live global-administration smoke issued a 15-minute JWT from the dedicated `PLATFORM_ADMIN`
+  client, listed all four integrations across two pages, created and immediately removed a dummy
+  per-integration OpenAI credential, and confirmed that the API exposed only status/version
+  metadata. Enabling enrichment afterward failed closed with `409 OPENAI_CREDENTIAL_REQUIRED`;
+  DynamoDB returned to zero OpenAI credential items and both flags remained disabled.
+- The running StoragIA EC2 instance uses its dedicated instance profile with receive/delete/change
+  visibility permissions scoped to the StoragIA automation FIFO queue.
+
+### Operational follow-up
+
+- The historical empty global secret `/tinkiva/messaging/dev/openai/account` was removed. OpenAI
+  credentials are now BYOK and scoped to each integration in DynamoDB; they are never stored there
+  in plaintext.
+- Media enrichment remains disabled by default. Configure a dedicated OpenAI project credential for
+  an integration through `/admin` before enabling audio or image enrichment, as documented in the
+  media enrichment guide.
+- The pre-existing WhatsApp outbound DLQ alarm remains in `ALARM` for one message first observed on
+  2026-07-30. This deployment did not inspect, delete, or redrive that unrelated message.
+- A read-only audit found active legacy reads of the Storagia and Tinkiva Dev application-client
+  Secrets. They were not deleted or consolidated. The `storagia-dev-backend-ec2` inline policy was
+  narrowed on 2026-08-12 from `/applications/*` to the exact Storagia Secret ARN; IAM simulation
+  confirmed `implicitDeny` for the platform-admin Secret.
+- The application-creation CLI now defaults to one-time `clientSecret` delivery and stores only its
+  HMAC digest in DynamoDB. Secrets Manager delivery remains an explicit `--credentials-secret-name`
+  compatibility option, including for the single global `PLATFORM_ADMIN` credential.
+
 ## 2026-08-08 — Point location messages
 
 - Operator: Codex using AWS user `saul`.

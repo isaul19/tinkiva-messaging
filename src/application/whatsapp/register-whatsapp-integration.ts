@@ -9,6 +9,7 @@ import type {
   RegisterWhatsappIntegrationRequest,
   WhatsappIntegrationResponse,
 } from "../../contracts/api/whatsapp-integration.contract.js";
+import { inboundMediaSettingsSchema } from "../../contracts/api/inbound-media.contract.js";
 import { ApplicationError } from "../../shared/errors/application-error.js";
 
 export interface RegisterWhatsappIntegrationCommand {
@@ -65,6 +66,7 @@ export class RegisterWhatsappIntegration {
     const webhookKey = randomBytes(32).toString("base64url");
     const verifyToken = randomBytes(32).toString("base64url");
     const webhookUrl = `${this.#config.webhookBaseUrl.replace(/\/+$/, "")}/webhooks/whatsapp/${webhookKey}`;
+    const inboundMedia = inboundMediaSettingsSchema.parse(command.request.inboundMedia);
     const credentialRef = await this.#credentials.create({
       accessToken: command.request.accessToken,
       applicationId: command.applicationId,
@@ -88,6 +90,7 @@ export class RegisterWhatsappIntegration {
           ? {}
           : { displayPhoneNumber: phoneNumber.displayPhoneNumber }),
         graphApiVersion: this.#config.graphApiVersion,
+        inboundMedia,
         integrationId,
         metaAppId: command.request.metaAppId,
         phoneNumberId: command.request.phoneNumberId,
@@ -159,6 +162,7 @@ export class RegisterWhatsappIntegration {
       ...(phoneNumber.displayPhoneNumber === undefined
         ? {}
         : { displayPhoneNumber: phoneNumber.displayPhoneNumber }),
+      inboundMedia,
       integrationId,
       phoneNumberId: command.request.phoneNumberId,
       provider: "WHATSAPP",

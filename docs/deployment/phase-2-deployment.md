@@ -105,6 +105,9 @@ pnpm admin:create-application `
   --region us-east-1
 ```
 
+Current behavior delivers `clientSecret` once in stdout and stores only its digest in DynamoDB. Save
+it immediately in the consuming application's own vault; it cannot be recovered from the gateway.
+
 Optional arguments:
 
 ```text
@@ -112,7 +115,10 @@ Optional arguments:
 --credentials-secret-name /tinkiva/messaging/dev/applications/storagia/client
 ```
 
-The CLI refuses an existing application code and returns only IDs and the secret ARN/name.
+`--credentials-secret-name` is an explicit compatibility opt-in. In that mode the CLI does not print
+the client secret and returns only IDs and the Secret ARN/name. The historical Tinkiva Dev and
+Storagia Secrets described above remain in use until their consumers are migrated. See
+[`../guides/application-client-credentials.md`](../guides/application-client-credentials.md).
 
 ## Verification evidence
 

@@ -90,6 +90,10 @@ describe("RegisterTelegramIntegration", () => {
         botToken,
         displayName: "Support bot",
         dropPendingUpdates: true,
+        inboundMedia: {
+          audioAlternativeText: true,
+          imageAlternativeText: false,
+        },
       },
       tenantId: "tenant_test",
     });
@@ -98,6 +102,10 @@ describe("RegisterTelegramIntegration", () => {
       botId: "123456789",
       botUsername: "tinkiva_test_bot",
       displayName: "Support bot",
+      inboundMedia: {
+        audioAlternativeText: true,
+        imageAlternativeText: false,
+      },
       provider: "TELEGRAM",
       status: "ACTIVE",
       tenantId: "tenant_test",
@@ -112,6 +120,10 @@ describe("RegisterTelegramIntegration", () => {
     expect(store.created).toMatchObject({
       applicationId: "app_test",
       botId: "123456789",
+      inboundMedia: {
+        audioAlternativeText: true,
+        imageAlternativeText: false,
+      },
     });
     expect(store.created?.credentialRef).toBe("pc_test");
     expect(store.statuses).toEqual(["ACTIVE"]);
@@ -133,6 +145,10 @@ describe("RegisterTelegramIntegration", () => {
         request: {
           botToken,
           displayName: "Support bot",
+          inboundMedia: {
+            audioAlternativeText: false,
+            imageAlternativeText: false,
+          },
         },
         tenantId: "tenant_test",
       }),
@@ -152,6 +168,10 @@ describe("RegisterTelegramIntegration", () => {
         request: {
           botToken,
           displayName: "Support bot",
+          inboundMedia: {
+            audioAlternativeText: false,
+            imageAlternativeText: false,
+          },
         },
         tenantId: "tenant_test",
       }),

@@ -42,6 +42,7 @@ export class DynamoTelegramIntegrationStore implements TelegramIntegrationStore 
         createdAt: input.createdAt,
         displayName: input.displayName,
         entityType: "CHANNEL_INTEGRATION",
+        inboundMedia: input.inboundMedia,
         integrationId: input.integrationId,
         provider: "TELEGRAM",
         providerAccountId: input.botId,

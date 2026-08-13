@@ -3,6 +3,7 @@ import { GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { z } from "zod";
 
 import type { TenantIntegrationReader } from "../../application/ports/tenant-integration-reader.js";
+import { inboundMediaSettingsSchema } from "../../contracts/api/inbound-media.contract.js";
 import type { TenantIntegrationListItem } from "../../contracts/api/integration-list.contract.js";
 
 const tenantIntegrationReferenceSchema = z.looseObject({
@@ -18,6 +19,7 @@ const integrationMetadataSchema = z.discriminatedUnion("provider", [
     botUsername: z.string().min(1).optional(),
     createdAt: z.iso.datetime(),
     displayName: z.string().min(1),
+    inboundMedia: inboundMediaSettingsSchema,
     integrationId: z.string().min(1),
     provider: z.literal("TELEGRAM"),
     providerAccountId: z.string().min(1),
@@ -31,6 +33,7 @@ const integrationMetadataSchema = z.discriminatedUnion("provider", [
     createdAt: z.iso.datetime(),
     displayName: z.string().min(1),
     displayPhoneNumber: z.string().min(1).optional(),
+    inboundMedia: inboundMediaSettingsSchema,
     integrationId: z.string().min(1),
     phoneNumberId: z.string().min(1),
     provider: z.literal("WHATSAPP"),
@@ -98,8 +101,8 @@ export class DynamoTenantIntegrationReader implements TenantIntegrationReader {
             },
             ProjectionExpression:
               "applicationId, botId, botUsername, createdAt, displayName, " +
-              "displayPhoneNumber, integrationId, phoneNumberId, #provider, providerAccountId, " +
-              "providerConnectionId, #status, tenantId, updatedAt, verifiedName",
+              "displayPhoneNumber, inboundMedia, integrationId, phoneNumberId, #provider, " +
+              "providerAccountId, providerConnectionId, #status, tenantId, updatedAt, verifiedName",
             TableName: this.#tableName,
           }),
         );
@@ -144,6 +147,7 @@ export class DynamoTenantIntegrationReader implements TenantIntegrationReader {
           createdAt: integration.createdAt,
           credentialVersion: credential.credentialVersion,
           displayName: integration.displayName,
+          inboundMedia: integration.inboundMedia,
           integrationId: integration.integrationId,
           providerAccountId: integration.providerAccountId,
           status: integration.status,

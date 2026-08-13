@@ -6,75 +6,19 @@ import { DynamoDBDocumentClient, QueryCommand, TransactWriteCommand } from "@aws
 import { ulid } from "ulid";
 import { z } from "zod";
 
-import { applicationScopeSchema, type ApplicationScope } from "../contracts/api/auth.contract.js";
 import { CachedSecretReader } from "../infrastructure/secrets/cached-secret-reader.js";
 import { digestClientSecret } from "../shared/crypto/client-secret.js";
-
-const argumentsSchema = z.object({
-  code: z
-    .string()
-    .trim()
-    .min(2)
-    .max(60)
-    .regex(/^[A-Z][A-Z0-9_]*$/),
-  credentialsSecretName: z.string().min(1),
-  name: z.string().trim().min(2).max(200),
-  region: z.string().min(1),
-  scopes: z.array(applicationScopeSchema).min(1),
-  stage: z.string().regex(/^[a-z][a-z0-9-]*$/),
-});
+import {
+  createApplicationOutput,
+  parseCreateApplicationArguments,
+} from "./create-application-options.js";
 
 const pepperSchema = z.looseObject({
   value: z.string().min(32),
 });
 
-const defaultScopes: ApplicationScope[] = [
-  "events:manage",
-  "integrations:read",
-  "integrations:write",
-  "messages:read",
-  "messages:send",
-  "tenants:read",
-  "tenants:write",
-];
-
-const readNamedArguments = (values: string[]): Record<string, string> => {
-  const parsed: Record<string, string> = {};
-
-  for (let index = 0; index < values.length; index += 2) {
-    const name = values[index];
-    const value = values[index + 1];
-
-    if (name === undefined || value === undefined || !name.startsWith("--")) {
-      throw new Error("Arguments must use --name value pairs.");
-    }
-
-    parsed[name.slice(2)] = value;
-  }
-
-  return parsed;
-};
-
-const parseArguments = () => {
-  const raw = readNamedArguments(process.argv.slice(2));
-  const stage = raw.stage ?? "dev";
-  const code = raw.code?.trim().toUpperCase();
-
-  return argumentsSchema.parse({
-    code,
-    credentialsSecretName:
-      raw["credentials-secret-name"] ??
-      `/tinkiva/messaging/${stage}/applications/${code?.toLowerCase() ?? "unknown"}/client`,
-    name: raw.name,
-    region: raw.region ?? "us-east-1",
-    scopes:
-      raw.scopes === undefined ? defaultScopes : raw.scopes.split(",").map((scope) => scope.trim()),
-    stage,
-  });
-};
-
 const main = async (): Promise<void> => {
-  const input = parseArguments();
+  const input = parseCreateApplicationArguments(process.argv.slice(2));
   const tableName = `messaging-control-${input.stage}`;
   const pepperSecretId = `/tinkiva/messaging/${input.stage}/auth/pepper`;
   const nativeDynamoClient = new DynamoDBClient({ region: input.region });
@@ -109,23 +53,26 @@ const main = async (): Promise<void> => {
   const secretDigest = digestClientSecret(pepper.value, clientSecret);
   const createdAt = new Date().toISOString();
 
-  const credentialsSecret = await secretsClient.send(
-    new CreateSecretCommand({
-      Description: `Application client credentials for ${input.code} in ${input.stage}.`,
-      Name: input.credentialsSecretName,
-      SecretString: JSON.stringify({
-        applicationId,
-        clientId,
-        clientSecret,
-      }),
-      Tags: [
-        { Key: "DataClassification", Value: "secret" },
-        { Key: "ManagedBy", Value: "tinkiva-messaging-admin-cli" },
-        { Key: "Project", Value: "tinkiva-messaging" },
-        { Key: "Stage", Value: input.stage },
-      ],
-    }),
-  );
+  const credentialsSecret =
+    input.credentialsSecretName === undefined
+      ? undefined
+      : await secretsClient.send(
+          new CreateSecretCommand({
+            Description: `Application client credentials for ${input.code} in ${input.stage}.`,
+            Name: input.credentialsSecretName,
+            SecretString: JSON.stringify({
+              applicationId,
+              clientId,
+              clientSecret,
+            }),
+            Tags: [
+              { Key: "DataClassification", Value: "secret" },
+              { Key: "ManagedBy", Value: "tinkiva-messaging-admin-cli" },
+              { Key: "Project", Value: "tinkiva-messaging" },
+              { Key: "Stage", Value: input.stage },
+            ],
+          }),
+        );
 
   try {
     await documentClient.send(
@@ -172,22 +119,30 @@ const main = async (): Promise<void> => {
       }),
     );
   } catch (error) {
-    throw new Error(
-      `The credential secret was created at ${input.credentialsSecretName}, but the DynamoDB transaction failed. Resolve the cause before retrying.`,
-      { cause: error },
-    );
+    if (input.credentialsSecretName !== undefined) {
+      throw new Error(
+        `The credential secret was created at ${input.credentialsSecretName}, but the DynamoDB transaction failed. Resolve the cause before retrying.`,
+        { cause: error },
+      );
+    }
+
+    throw error;
   }
 
   process.stdout.write(
     `${JSON.stringify(
-      {
+      createApplicationOutput({
         applicationId,
         clientId,
-        credentialsSecretArn: credentialsSecret.ARN,
-        credentialsSecretName: input.credentialsSecretName,
+        clientSecret,
+        ...(credentialsSecret?.ARN === undefined
+          ? {}
+          : { credentialsSecretArn: credentialsSecret.ARN }),
+        ...(input.credentialsSecretName === undefined
+          ? {}
+          : { credentialsSecretName: input.credentialsSecretName }),
         scopes: input.scopes,
-        status: "created",
-      },
+      }),
       null,
       2,
     )}\n`,

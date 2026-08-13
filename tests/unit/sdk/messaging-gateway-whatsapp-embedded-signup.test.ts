@@ -66,6 +66,10 @@ describe("MessagingGatewayClient WhatsApp Embedded Signup", () => {
         wabaId: "1373995794700687",
       }),
     ).resolves.toMatchObject({
+      inboundMedia: {
+        audioAlternativeText: false,
+        imageAlternativeText: false,
+      },
       integrationId: "int_embedded",
       status: "ACTIVE",
     });
@@ -82,6 +86,10 @@ describe("MessagingGatewayClient WhatsApp Embedded Signup", () => {
     expect(completionHeaders.get("authorization")).toBe("Bearer token_01");
     expect(JSON.parse(completionOptions?.body as string)).toMatchObject({
       authorizationCode: "one-time-authorization-code",
+      inboundMedia: {
+        audioAlternativeText: false,
+        imageAlternativeText: false,
+      },
       phoneNumberId: "1265721213282879",
       wabaId: "1373995794700687",
     });

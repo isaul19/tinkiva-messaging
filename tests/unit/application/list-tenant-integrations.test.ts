@@ -10,6 +10,10 @@ describe("ListTenantIntegrations", () => {
         createdAt: "2026-07-25T20:00:00.000Z",
         credentialVersion: 2,
         displayName: "Storagia WhatsApp",
+        inboundMedia: {
+          audioAlternativeText: true,
+          imageAlternativeText: false,
+        },
         integrationId: "int_01JTESTLIST000000000000000",
         phoneNumberId: "1265721213282879",
         provider: "WHATSAPP" as const,

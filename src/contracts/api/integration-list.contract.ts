@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { integrationIdSchema, tenantIdSchema } from "../shared/identifiers.js";
+import { inboundMediaSettingsSchema } from "./inbound-media.contract.js";
 
 const integrationStatusSchema = z.enum(["ACTIVE", "DISABLED", "ERROR", "PENDING"]);
 
@@ -11,6 +12,7 @@ export const telegramIntegrationListItemSchema = z
     createdAt: z.iso.datetime(),
     credentialVersion: z.number().int().positive(),
     displayName: z.string().min(1),
+    inboundMedia: inboundMediaSettingsSchema,
     integrationId: integrationIdSchema,
     provider: z.literal("TELEGRAM"),
     providerAccountId: z.string().min(1),
@@ -26,6 +28,7 @@ export const whatsappIntegrationListItemSchema = z
     credentialVersion: z.number().int().positive(),
     displayName: z.string().min(1),
     displayPhoneNumber: z.string().min(1).optional(),
+    inboundMedia: inboundMediaSettingsSchema,
     integrationId: integrationIdSchema,
     phoneNumberId: z.string().min(1),
     provider: z.literal("WHATSAPP"),

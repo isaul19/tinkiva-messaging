@@ -9,6 +9,7 @@ const templatePath = resolve(
 const template = JSON.parse(readFileSync(templatePath, "utf8"));
 const resources = template.Resources ?? {};
 const outputs = template.Outputs ?? {};
+const serializedTemplate = JSON.stringify(template);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -34,7 +35,7 @@ const queuePairs = [
   ["TelegramOutboundQueue", "TelegramOutboundDlq", true, 180],
   ["AppEventsQueue", "AppEventsDlq", true, 180],
   ["StoragiaAutomationQueue", "StoragiaAutomationDlq", true, 300],
-  ["MediaQueue", "MediaDlq", false, 360],
+  ["MediaQueue", "MediaDlq", false, 720],
 ];
 
 for (const [queueId, dlqId, fifo, visibilityTimeout] of queuePairs) {
@@ -119,6 +120,24 @@ for (const secretId of ["AuthPepperSecret", "JwtSigningSecret"]) {
     `${secretId} must generate at least 64 characters`,
   );
 }
+assert(
+  Object.values(resources).filter((value) => value.Type === "AWS::SecretsManager::Secret")
+    .length === 2,
+  "The stack must contain only the two base authentication secrets",
+);
+assert(
+  resources.OpenAICredentialsSecret === undefined,
+  "The retired global OpenAI Secrets Manager resource must not be packaged",
+);
+assert(
+  outputs.OpenAICredentialsSecretArn === undefined,
+  "The retired global OpenAI secret output must not be packaged",
+);
+assert(
+  !serializedTemplate.includes("OpenAICredentialsSecret") &&
+    !serializedTemplate.includes("OPENAI_CREDENTIALS_SECRET_ARN"),
+  "The packaged stack must not reference the retired global OpenAI secret",
+);
 
 resource("MessagingAlarmTopic", "AWS::SNS::Topic");
 for (const alarmId of [
@@ -176,6 +195,7 @@ for (const outputId of [
   "StoragiaAutomationDlqUrl",
   "StoragiaAutomationDlqArn",
   "MediaQueueUrl",
+  "ProviderCredentialsKeyArn",
   "AuthPepperSecretArn",
   "JwtSigningSecretArn",
   "AlarmTopicArn",
