@@ -5,6 +5,7 @@ const PERMANENT_ERROR_NAMES = new Set([
   "NotFoundError",
   "PermissionDeniedError",
   "UnprocessableEntityError",
+  "OpenAICredentialUnavailableError",
 ]);
 
 export const isPermanentMediaGenerationError = (error: unknown): boolean => {

@@ -5,6 +5,12 @@ export interface SendTelegramTextInput {
 }
 
 export interface TelegramMessageApi {
+  sendAudio?(input: {
+    audioUrl: string;
+    botToken: string;
+    caption?: string;
+    chatId: string;
+  }): Promise<{ providerMessageId: string }>;
   sendImage?(input: {
     botToken: string;
     caption?: string;

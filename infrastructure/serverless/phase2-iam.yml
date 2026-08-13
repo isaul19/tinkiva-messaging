@@ -124,6 +124,13 @@ Resources:
                             - Arn
               - Effect: Allow
                 Action:
+                  - dynamodb:GetItem
+                Resource:
+                  Fn::GetAtt:
+                    - TinkivaTenantIntegrations
+                    - Arn
+              - Effect: Allow
+                Action:
                   - sqs:SendMessage
                 Resource:
                   - Fn::GetAtt:

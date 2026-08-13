@@ -1,6 +1,6 @@
-import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
+  BatchGetCommand,
   BatchWriteCommand,
   DeleteCommand,
   GetCommand,
@@ -29,6 +29,13 @@ const integration = {
   tenantId: "tenant_test",
 } as const;
 
+const tenantLink = {
+  applicationId: integration.applicationId,
+  externalAccountId: "account_test",
+  status: "ACTIVE",
+  tenantId: integration.tenantId,
+} as const;
+
 describe("DynamoPlatformAdminStore", () => {
   it("lists integration metadata with exact chat counts and disabled enrichment defaults", async () => {
     const send = vi.fn((command: unknown): Promise<unknown> => {
@@ -42,6 +49,7 @@ describe("DynamoPlatformAdminStore", () => {
         return Promise.resolve({ Items: [integration] });
       }
       if (command instanceof QueryCommand) {
+        if (command.input.Select !== "COUNT") return Promise.resolve({ Items: [tenantLink] });
         expect(command.input).toMatchObject({
           IndexName: "GSI1",
           Select: "COUNT",
@@ -52,6 +60,7 @@ describe("DynamoPlatformAdminStore", () => {
         });
         return Promise.resolve({ Count: 7 });
       }
+      if (command instanceof BatchGetCommand) return Promise.resolve({ Responses: {} });
       throw new Error("Unexpected command.");
     });
     const store = new DynamoPlatformAdminStore(
@@ -97,7 +106,26 @@ describe("DynamoPlatformAdminStore", () => {
           ],
         });
       }
-      if (command instanceof QueryCommand) return Promise.resolve({ Count: 0 });
+      if (command instanceof QueryCommand) {
+        return command.input.Select === "COUNT"
+          ? Promise.resolve({ Count: 0 })
+          : Promise.resolve({ Items: [tenantLink] });
+      }
+      if (command instanceof BatchGetCommand) {
+        return Promise.resolve({
+          Responses: {
+            "control-test": [
+              {
+                credentialStatus: "VALID",
+                enabled: true,
+                provider: "OPENAI",
+                tenantId: "account_test",
+                updatedAt: "2026-08-12T12:00:00.000Z",
+              },
+            ],
+          },
+        });
+      }
       throw new Error("Unexpected command.");
     });
     const store = new DynamoPlatformAdminStore(
@@ -110,7 +138,7 @@ describe("DynamoPlatformAdminStore", () => {
 
     expect(result.items[0]?.openAiCredential).toEqual({
       configured: true,
-      credentialVersion: 4,
+      credentialVersion: 1,
       updatedAt: "2026-08-12T12:00:00.000Z",
     });
     expect(JSON.stringify(result)).not.toContain("sk-must-never-leak");
@@ -151,10 +179,22 @@ describe("DynamoPlatformAdminStore", () => {
     });
   });
 
-  it("atomically verifies an owned OpenAI credential before enabling inbound media", async () => {
+  it("verifies the tenant OpenAI credential before enabling inbound media", async () => {
     const send = vi.fn((command: unknown): Promise<unknown> => {
-      void command;
-      return Promise.resolve({});
+      if (command instanceof QueryCommand) return Promise.resolve({ Items: [tenantLink] });
+      if (command instanceof GetCommand) {
+        return Promise.resolve({
+          Item: {
+            credentialStatus: "VALID",
+            enabled: true,
+            provider: "OPENAI",
+            tenantId: "account_test",
+            updatedAt: "2026-08-12T12:00:00.000Z",
+          },
+        });
+      }
+      if (command instanceof UpdateCommand) return Promise.resolve({});
+      throw new Error("Unexpected command.");
     });
     const store = new DynamoPlatformAdminStore(
       { send } as unknown as DynamoDBDocumentClient,
@@ -169,31 +209,27 @@ describe("DynamoPlatformAdminStore", () => {
       tenantId: "tenant_test",
     });
 
-    const command = send.mock.calls[0]?.[0];
-    expect(command).toBeInstanceOf(TransactWriteCommand);
-    if (!(command instanceof TransactWriteCommand)) throw new Error("Expected transaction.");
-    expect(command.input.TransactItems?.[0]?.ConditionCheck).toMatchObject({
-      ConditionExpression:
-        "applicationId = :applicationId AND tenantId = :tenantId " +
-        "AND integrationId = :integrationId AND entityType = :credentialEntityType " +
-        "AND attribute_exists(credentialCiphertext) " +
-        "AND attribute_exists(credentialKeyArn) " +
-        "AND credentialVersion >= :minimumCredentialVersion",
-      Key: { PK: "INTEGRATION#int_test", SK: "OPENAI_CREDENTIAL" },
+    const credentialRead = send.mock.calls[1]?.[0];
+    expect(credentialRead).toBeInstanceOf(GetCommand);
+    if (!(credentialRead instanceof GetCommand)) throw new Error("Expected credential read.");
+    expect(credentialRead.input).toMatchObject({
+      Key: { PK: "TENANT#account_test", SK: "PROVIDER#OPENAI" },
+      TableName: "control-test",
     });
-    expect(command.input.TransactItems?.[1]?.Update).toMatchObject({
+    const integrationUpdate = send.mock.calls[2]?.[0];
+    expect(integrationUpdate).toBeInstanceOf(UpdateCommand);
+    if (!(integrationUpdate instanceof UpdateCommand)) throw new Error("Expected update.");
+    expect(integrationUpdate.input).toMatchObject({
       Key: { PK: "INTEGRATION#int_test", SK: "META" },
       UpdateExpression: "SET inboundMedia = :inboundMedia, updatedAt = :updatedAt",
     });
   });
 
   it("rejects enabling inbound media when the integration has no OpenAI credential", async () => {
-    const send = vi.fn().mockRejectedValue(
-      new TransactionCanceledException({
-        $metadata: {},
-        CancellationReasons: [{ Code: "ConditionalCheckFailed" }, { Code: "None" }],
-        message: "missing credential",
-      }),
+    const send = vi.fn((command: unknown): Promise<unknown> =>
+      command instanceof QueryCommand
+        ? Promise.resolve({ Items: [tenantLink] })
+        : Promise.resolve({}),
     );
     const store = new DynamoPlatformAdminStore(
       { send } as unknown as DynamoDBDocumentClient,

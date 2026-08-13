@@ -45,6 +45,30 @@ export class TelegramMessageApiClient implements TelegramMessageApi {
     );
   }
 
+  public async sendAudio(input: {
+    audioUrl: string;
+    botToken: string;
+    caption?: string;
+    chatId: string;
+  }): Promise<{ providerMessageId: string }> {
+    const caption = input.caption === undefined ? undefined : parseBoldMarkup(input.caption);
+    return this.#send(
+      input.botToken,
+      "sendAudio",
+      {
+        audio: input.audioUrl,
+        ...(caption === undefined
+          ? {}
+          : {
+              caption: caption.text,
+              ...(caption.entities.length === 0 ? {} : { caption_entities: caption.entities }),
+            }),
+        chat_id: input.chatId,
+      },
+      "audio",
+    );
+  }
+
   public async sendText(input: SendTelegramTextInput): Promise<{ providerMessageId: string }> {
     const text = parseBoldMarkup(input.text);
     return this.#send(
@@ -61,7 +85,7 @@ export class TelegramMessageApiClient implements TelegramMessageApi {
 
   async #send(
     botToken: string,
-    method: "sendMessage" | "sendPhoto",
+    method: "sendAudio" | "sendMessage" | "sendPhoto",
     payload: Record<string, unknown>,
     subject: string,
   ): Promise<{ providerMessageId: string }> {

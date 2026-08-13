@@ -5,6 +5,12 @@ export type StoredOutgoingContent =
   | {
       caption?: string;
       media: MediaReference;
+      type: "AUDIO";
+      voice: false;
+    }
+  | {
+      caption?: string;
+      media: MediaReference;
       type: "IMAGE";
     };
 

@@ -4,6 +4,7 @@ import {
 } from "@aws-sdk/client-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
+  BatchGetCommand,
   BatchWriteCommand,
   GetCommand,
   QueryCommand,
@@ -83,6 +84,21 @@ const integrationChildSchema = z.looseObject({
   identityId: z.string().min(1).optional(),
 });
 
+const tenantOpenAiCredentialSchema = z.looseObject({
+  credentialStatus: z.enum(["VALID", "INVALID", "UNKNOWN"]),
+  enabled: z.boolean(),
+  provider: z.literal("OPENAI"),
+  tenantId: z.string().min(1),
+  updatedAt: z.iso.datetime(),
+});
+
+const tenantApplicationLinkSchema = z.looseObject({
+  applicationId: z.string().min(1),
+  externalAccountId: z.string().min(1),
+  status: z.literal("ACTIVE"),
+  tenantId: z.string().min(1),
+});
+
 const scanCursorSchema = z.strictObject({
   PK: z.string().min(1),
   SK: z.string().min(1),
@@ -101,16 +117,19 @@ export class DynamoPlatformAdminStore implements PlatformAdminStore {
   readonly #client: DynamoDBDocumentClient;
   readonly #controlTable: string;
   readonly #conversationStore: DynamoConversationStore;
+  readonly #tenantIntegrationsTable: string;
 
   public constructor(
     client: DynamoDBDocumentClient,
     controlTable: string,
     dataTable: string,
     media?: MediaObjectDeleter,
+    tenantIntegrationsTable = controlTable,
   ) {
     this.#client = client;
     this.#controlTable = controlTable;
     this.#conversationStore = new DynamoConversationStore(client, controlTable, dataTable, media);
+    this.#tenantIntegrationsTable = tenantIntegrationsTable;
   }
 
   public async listIntegrations(input: {
@@ -138,6 +157,7 @@ export class DynamoPlatformAdminStore implements PlatformAdminStore {
       }),
     );
     const integrations = z.array(integrationSchema).parse(response.Items ?? []);
+    const credentialStatuses = await this.#tenantCredentialStatuses(integrations);
     const items = await mapWithConcurrency(
       integrations,
       COUNT_CONCURRENCY,
@@ -148,7 +168,7 @@ export class DynamoPlatformAdminStore implements PlatformAdminStore {
         displayName: integration.displayName,
         inboundMedia: integration.inboundMedia ?? defaultInboundMedia(),
         integrationId: integration.integrationId,
-        openAiCredential: integration.openAiCredential ?? { configured: false },
+        openAiCredential: credentialStatuses.get(integration.tenantId) ?? { configured: false },
         provider: integration.provider,
         providerAccountId: integration.providerAccountId,
         status: integration.status,
@@ -163,6 +183,61 @@ export class DynamoPlatformAdminStore implements PlatformAdminStore {
         ? {}
         : { nextCursor: encodeCursor(scanCursorSchema.parse(response.LastEvaluatedKey)) }),
     };
+  }
+
+  async #tenantCredentialStatuses(
+    integrations: readonly z.infer<typeof integrationSchema>[],
+  ): Promise<Map<string, PlatformIntegrationAdministrationItem["openAiCredential"]>> {
+    const tenantIds = [...new Set(integrations.map((integration) => integration.tenantId))];
+    const credentialTenantIds = new Map(
+      await Promise.all(
+        integrations.map(
+          async (integration) =>
+            [
+              integration.tenantId,
+              await this.#credentialTenantId(integration.applicationId, integration.tenantId),
+            ] as const,
+        ),
+      ),
+    );
+    const statuses = new Map<string, PlatformIntegrationAdministrationItem["openAiCredential"]>();
+
+    for (let offset = 0; offset < tenantIds.length; offset += 100) {
+      const chunk = tenantIds.slice(offset, offset + 100);
+      const response = await this.#client.send(
+        new BatchGetCommand({
+          RequestItems: {
+            [this.#tenantIntegrationsTable]: {
+              ConsistentRead: true,
+              Keys: chunk.map((tenantId) => ({
+                PK: `TENANT#${credentialTenantIds.get(tenantId) ?? ""}`,
+                SK: "PROVIDER#OPENAI",
+              })),
+              ProjectionExpression: "credentialStatus, enabled, provider, tenantId, updatedAt",
+            },
+          },
+        }),
+      );
+      if ((response.UnprocessedKeys?.[this.#tenantIntegrationsTable]?.Keys?.length ?? 0) > 0) {
+        throw new Error("Tenant OpenAI credential status read was incomplete.");
+      }
+      for (const item of response.Responses?.[this.#tenantIntegrationsTable] ?? []) {
+        const parsed = tenantOpenAiCredentialSchema.parse(item);
+        const internalTenantId = chunk.find(
+          (tenantId) => credentialTenantIds.get(tenantId) === parsed.tenantId,
+        );
+        if (internalTenantId === undefined)
+          throw new Error("Tenant credential metadata is invalid.");
+        statuses.set(
+          internalTenantId,
+          parsed.enabled && parsed.credentialStatus !== "INVALID"
+            ? { configured: true, credentialVersion: 1, updatedAt: parsed.updatedAt }
+            : { configured: false, updatedAt: parsed.updatedAt },
+        );
+      }
+    }
+
+    return statuses;
   }
 
   public async updateInboundMedia(input: {
@@ -205,8 +280,9 @@ export class DynamoPlatformAdminStore implements PlatformAdminStore {
       if (error instanceof ConditionalCheckFailedException) throw integrationNotFoundError();
       if (error instanceof TransactionCanceledException) {
         const reasons = error.CancellationReasons ?? [];
-        if (reasons[1]?.Code === "ConditionalCheckFailed") throw integrationNotFoundError();
-        if (reasons[0]?.Code === "ConditionalCheckFailed") throw credentialRequiredError();
+        if (reasons.some((reason) => reason.Code === "ConditionalCheckFailed")) {
+          throw integrationNotFoundError();
+        }
       }
       throw error;
     }
@@ -223,52 +299,69 @@ export class DynamoPlatformAdminStore implements PlatformAdminStore {
     },
     updatedAt: string,
   ): Promise<void> {
-    await this.#client.send(
-      new TransactWriteCommand({
-        TransactItems: [
-          {
-            ConditionCheck: {
-              ConditionExpression:
-                "applicationId = :applicationId AND tenantId = :tenantId " +
-                "AND integrationId = :integrationId AND entityType = :credentialEntityType " +
-                "AND attribute_exists(credentialCiphertext) " +
-                "AND attribute_exists(credentialKeyArn) " +
-                "AND credentialVersion >= :minimumCredentialVersion",
-              ExpressionAttributeValues: {
-                ":applicationId": input.applicationId,
-                ":credentialEntityType": "OPENAI_CREDENTIAL",
-                ":integrationId": input.integrationId,
-                ":minimumCredentialVersion": 1,
-                ":tenantId": input.tenantId,
-              },
-              Key: {
-                PK: `INTEGRATION#${input.integrationId}`,
-                SK: "OPENAI_CREDENTIAL",
-              },
-              TableName: this.#controlTable,
-            },
-          },
-          {
-            Update: {
-              ConditionExpression:
-                "applicationId = :applicationId AND tenantId = :tenantId " +
-                "AND integrationId = :integrationId AND entityType = :entityType",
-              ExpressionAttributeValues: {
-                ":applicationId": input.applicationId,
-                ":entityType": "CHANNEL_INTEGRATION",
-                ":inboundMedia": input.inboundMedia,
-                ":integrationId": input.integrationId,
-                ":tenantId": input.tenantId,
-                ":updatedAt": updatedAt,
-              },
-              Key: { PK: `INTEGRATION#${input.integrationId}`, SK: "META" },
-              TableName: this.#controlTable,
-              UpdateExpression: "SET inboundMedia = :inboundMedia, updatedAt = :updatedAt",
-            },
-          },
-        ],
+    const credentialTenantId = await this.#credentialTenantId(input.applicationId, input.tenantId);
+    const credentialResponse = await this.#client.send(
+      new GetCommand({
+        ConsistentRead: true,
+        Key: { PK: `TENANT#${credentialTenantId}`, SK: "PROVIDER#OPENAI" },
+        ProjectionExpression: "credentialStatus, enabled, provider, tenantId, updatedAt",
+        TableName: this.#tenantIntegrationsTable,
       }),
     );
+    const credential = tenantOpenAiCredentialSchema.safeParse(credentialResponse.Item);
+    if (
+      !credential.success ||
+      credential.data.tenantId !== credentialTenantId ||
+      !credential.data.enabled ||
+      credential.data.credentialStatus === "INVALID"
+    ) {
+      throw credentialRequiredError();
+    }
+
+    await this.#client.send(
+      new UpdateCommand({
+        ConditionExpression:
+          "applicationId = :applicationId AND tenantId = :tenantId " +
+          "AND integrationId = :integrationId AND entityType = :entityType",
+        ExpressionAttributeValues: {
+          ":applicationId": input.applicationId,
+          ":entityType": "CHANNEL_INTEGRATION",
+          ":inboundMedia": input.inboundMedia,
+          ":integrationId": input.integrationId,
+          ":tenantId": input.tenantId,
+          ":updatedAt": updatedAt,
+        },
+        Key: { PK: `INTEGRATION#${input.integrationId}`, SK: "META" },
+        TableName: this.#controlTable,
+        UpdateExpression: "SET inboundMedia = :inboundMedia, updatedAt = :updatedAt",
+      }),
+    );
+  }
+
+  async #credentialTenantId(applicationId: string, tenantId: string): Promise<string> {
+    const response = await this.#client.send(
+      new QueryCommand({
+        ConsistentRead: true,
+        ExpressionAttributeValues: {
+          ":pk": `TENANT#${tenantId}`,
+          ":sk": `APP#${applicationId}#ACCOUNT#`,
+        },
+        KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+        Limit: 1,
+        ProjectionExpression: "applicationId, externalAccountId, #status, tenantId",
+        ExpressionAttributeNames: { "#status": "status" },
+        TableName: this.#controlTable,
+      }),
+    );
+    const link = tenantApplicationLinkSchema.safeParse(response.Items?.[0]);
+    if (
+      !link.success ||
+      link.data.applicationId !== applicationId ||
+      link.data.tenantId !== tenantId
+    ) {
+      throw integrationNotFoundError();
+    }
+    return link.data.externalAccountId;
   }
 
   public async deleteIntegrationData(input: {

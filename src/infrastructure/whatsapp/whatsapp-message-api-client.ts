@@ -46,6 +46,19 @@ export class WhatsappMessageApiClient implements WhatsappMessageApi {
     });
   }
 
+  public sendAudio(input: {
+    accessToken: string;
+    graphApiVersion: string;
+    mediaId: string;
+    phoneNumberId: string;
+    recipientId: string;
+  }): Promise<WhatsappSendTextResult> {
+    return this.#send(input, {
+      audio: { id: input.mediaId },
+      type: "audio",
+    });
+  }
+
   public async uploadImage(input: {
     accessToken: string;
     bytes: Uint8Array;
@@ -99,6 +112,72 @@ export class WhatsappMessageApiClient implements WhatsappMessageApi {
       if (error instanceof ApplicationError) {
         throw error;
       }
+      throw providerUnavailableError();
+    }
+  }
+
+  public uploadAudio(input: {
+    accessToken: string;
+    bytes: Uint8Array;
+    graphApiVersion: string;
+    mimeType: "audio/aac" | "audio/amr" | "audio/mpeg" | "audio/mp4" | "audio/ogg";
+    phoneNumberId: string;
+  }): Promise<{ providerMediaId: string }> {
+    const extension: Record<typeof input.mimeType, string> = {
+      "audio/aac": "aac",
+      "audio/amr": "amr",
+      "audio/mpeg": "mp3",
+      "audio/mp4": "m4a",
+      "audio/ogg": "ogg",
+    };
+    return this.#uploadMedia(input, `audio.${extension[input.mimeType]}`);
+  }
+
+  async #uploadMedia(
+    input: {
+      accessToken: string;
+      bytes: Uint8Array;
+      graphApiVersion: string;
+      mimeType: string;
+      phoneNumberId: string;
+    },
+    filename: string,
+  ): Promise<{ providerMediaId: string }> {
+    try {
+      const form = new FormData();
+      form.append("messaging_product", "whatsapp");
+      form.append(
+        "file",
+        new Blob([new Uint8Array(input.bytes)], { type: input.mimeType }),
+        filename,
+      );
+      const response = await this.#fetch(
+        `https://graph.facebook.com/${input.graphApiVersion}/${encodeURIComponent(input.phoneNumberId)}/media`,
+        {
+          body: form,
+          headers: { authorization: `Bearer ${input.accessToken}` },
+          method: "POST",
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+      const body: unknown = await response.json();
+      const parsed = uploadResponseSchema.safeParse(body);
+      if (!response.ok || !parsed.success) {
+        if ([401, 403].includes(response.status)) {
+          throw new ApplicationError(
+            "PROVIDER_CREDENTIAL_INVALID",
+            "Meta rejected the WhatsApp access token.",
+            400,
+          );
+        }
+        if (response.status === 400) {
+          throw new ApplicationError("MEDIA_INVALID", "Meta rejected the media upload.", 422);
+        }
+        throw providerUnavailableError();
+      }
+      return { providerMediaId: parsed.data.id };
+    } catch (error) {
+      if (error instanceof ApplicationError) throw error;
       throw providerUnavailableError();
     }
   }

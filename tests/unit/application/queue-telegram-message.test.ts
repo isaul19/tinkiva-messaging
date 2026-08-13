@@ -86,6 +86,52 @@ describe("QueueTelegramMessage", () => {
     expect(store.markEnqueued).not.toHaveBeenCalled();
   });
 
+  it("imports and queues an outbound audio with its optional caption", async () => {
+    const { publisher, store } = createDependencies("CREATED");
+    const media = {
+      importAudio: vi.fn().mockResolvedValue({
+        mimeType: "audio/mpeg",
+        sha256: "a".repeat(64),
+        sizeBytes: 1_024,
+        storageKey: "tenants/tenant_demo/outbound/audio.mp3",
+      }),
+      importImage: vi.fn(),
+    };
+    const service = new QueueTelegramMessage(store, publisher, media);
+
+    await service.execute({
+      applicationId: "app_demo",
+      correlationId: "cor_demo",
+      idempotencyKey: "audio:123",
+      request: {
+        content: {
+          media: { text: "Escucha esto", url: "https://media.example/audio.mp3" },
+          type: "AUDIO",
+        },
+        integrationId: "int_telegram",
+        recipient: { type: "TELEGRAM_CHAT_ID", value: "123" },
+        tenantId: "tenant_demo",
+      },
+    });
+
+    expect(media.importAudio).toHaveBeenCalledWith(
+      expect.objectContaining({
+        acceptedMimeTypes: ["audio/mpeg", "audio/mp4"],
+        maxSizeBytes: 16 * 1024 * 1024,
+        sourceUrl: "https://media.example/audio.mp3",
+      }),
+    );
+    expect(store.reserveTelegramMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.objectContaining({
+          caption: "Escucha esto",
+          type: "AUDIO",
+          voice: false,
+        }),
+      }),
+    );
+  });
+
   it("rejects media until the Telegram media worker is enabled", async () => {
     const { publisher, store } = createDependencies("CREATED");
     const service = new QueueTelegramMessage(store, publisher);

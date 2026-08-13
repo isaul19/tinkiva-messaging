@@ -87,6 +87,41 @@ describe("SendTelegramMessage", () => {
     expect(api.sendText).not.toHaveBeenCalled();
   });
 
+  it("sends stored audio through Telegram using a temporary media URL", async () => {
+    const { api, secrets, store } = createDependencies();
+    vi.mocked(store.acquire).mockResolvedValue({
+      ...claimed,
+      content: {
+        caption: "Audio adjunto",
+        media: {
+          bucket: "media-bucket",
+          key: "tenants/tenant_demo/outbound/audio.mp3",
+          mimeType: "audio/mpeg",
+          sha256: "a".repeat(64),
+          sizeBytes: 1_024,
+        },
+        type: "AUDIO",
+        voice: false,
+      },
+    });
+    const audioApi = {
+      ...api,
+      sendAudio: vi.fn().mockResolvedValue({ providerMessageId: "43" }),
+    };
+    const media = {
+      temporaryDownloadUrl: vi.fn().mockResolvedValue("https://signed.example/audio.mp3"),
+    };
+    const service = new SendTelegramMessage(store, secrets, audioApi, media);
+
+    await expect(service.execute(envelope)).resolves.toEqual({ status: "SENT" });
+    expect(audioApi.sendAudio).toHaveBeenCalledWith({
+      audioUrl: "https://signed.example/audio.mp3",
+      botToken: "not-logged",
+      caption: "Audio adjunto",
+      chatId: "123",
+    });
+  });
+
   it("marks a provider rejection as failed without retrying the SQS record", async () => {
     const { api, secrets, store } = createDependencies();
     vi.mocked(api.sendText).mockRejectedValue(

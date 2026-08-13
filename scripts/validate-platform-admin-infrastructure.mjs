@@ -40,44 +40,37 @@ for (const action of [
   "dynamodb:Scan",
   "dynamodb:TransactWriteItems",
   "dynamodb:UpdateItem",
-  "kms:Encrypt",
   "s3:DeleteObject",
 ]) {
   assert(actions.includes(action), `PlatformAdminLambdaRole must allow ${action}`);
 }
 assert(!actions.includes("kms:Decrypt"), "PlatformAdminLambdaRole must not decrypt OpenAI keys");
+assert(!actions.includes("kms:Encrypt"), "PlatformAdminLambdaRole must not encrypt tenant keys");
 assert(
   !actions.some((action) => action.startsWith("secretsmanager:")),
   "PlatformAdminLambdaRole must not use Secrets Manager for OpenAI credentials",
 );
-const encryptStatement = statements.find((statement) =>
-  (Array.isArray(statement.Action) ? statement.Action : [statement.Action]).includes("kms:Encrypt"),
-);
-assert(
-  encryptStatement?.Resource?.["Fn::GetAtt"]?.[0] === "ProviderCredentialsKey",
-  "PlatformAdmin kms:Encrypt must be scoped to ProviderCredentialsKey",
-);
-assert(
-  encryptStatement?.Condition?.StringEquals?.["kms:EncryptionContext:stage"] === "dev" &&
-    encryptStatement.Condition.StringEquals["kms:EncryptionContext:resourceType"] ===
-      "OPENAI_CREDENTIAL" &&
-    encryptStatement.Condition.StringEquals["kms:EncryptionContext:tableName"]?.Ref ===
-      "MessagingControlTable",
-  "PlatformAdmin kms:Encrypt must be scoped to the OpenAI credential encryption context",
-);
-
 const adminFunction = resources.PlatformAdminLambdaFunction;
 const adminEnvironment = adminFunction.Properties.Environment.Variables;
 assert(
   adminEnvironment.MEDIA_BUCKET !== undefined,
   "PlatformAdmin Lambda must receive MEDIA_BUCKET",
 );
-for (const name of ["CONTROL_TABLE", "PROVIDER_CREDENTIALS_KEY_ARN", "STAGE"]) {
+for (const name of [
+  "CONTROL_TABLE",
+  "PROVIDER_CREDENTIALS_KEY_ARN",
+  "TINKIVA_INTEGRATIONS_TABLE",
+  "STAGE",
+]) {
   assert(adminEnvironment[name] !== undefined, `PlatformAdmin Lambda is missing ${name}`);
 }
 assert(
   adminEnvironment.PROVIDER_CREDENTIALS_KEY_ARN?.["Fn::GetAtt"]?.[0] === "ProviderCredentialsKey",
   "PlatformAdmin Lambda must receive ProviderCredentialsKey",
+);
+assert(
+  adminEnvironment.TINKIVA_INTEGRATIONS_TABLE?.Ref === "TinkivaTenantIntegrations",
+  "PlatformAdmin Lambda must receive TinkivaTenantIntegrations",
 );
 assert(
   adminEnvironment.OPENAI_CREDENTIALS_SECRET_ARN === undefined &&
@@ -89,8 +82,6 @@ const expectedRoutes = new Map([
   ["GET /admin", false],
   ["GET /v1/platform/integrations", true],
   ["PATCH /v1/platform/integrations/{integrationId}/inbound-media", true],
-  ["PUT /v1/platform/integrations/{integrationId}/openai-credential", true],
-  ["DELETE /v1/platform/integrations/{integrationId}/openai-credential", true],
   ["POST /v1/platform/integrations/{integrationId}/deletions", true],
 ]);
 

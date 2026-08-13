@@ -25,6 +25,7 @@ import {
 } from "../../contracts/api/conversation.contract.js";
 import { registerTelegramIntegrationRequestSchema } from "../../contracts/api/integration.contract.js";
 import { sendMessageRequestSchema } from "../../contracts/api/message.contract.js";
+import { updateInboundMediaSettingsRequestSchema } from "../../contracts/api/inbound-media.contract.js";
 import { ensureTenantRequestSchema } from "../../contracts/api/tenant.contract.js";
 import { completeWhatsappEmbeddedSignupRequestSchema } from "../../contracts/api/whatsapp-embedded-signup.contract.js";
 import {
@@ -40,6 +41,7 @@ import { dynamoDocumentClient, kmsClient, s3Client } from "../../infrastructure/
 import { DynamoConversationReader } from "../../infrastructure/dynamodb/dynamo-conversation-reader.js";
 import { DynamoConversationStore } from "../../infrastructure/dynamodb/dynamo-conversation-store.js";
 import { DynamoMessageIntegrationReader } from "../../infrastructure/dynamodb/dynamo-message-integration-reader.js";
+import { DynamoPlatformAdminStore } from "../../infrastructure/dynamodb/dynamo-platform-admin-store.js";
 import { DynamoOutgoingMessageStore } from "../../infrastructure/dynamodb/dynamo-outgoing-message-store.js";
 import { DynamoRealtimeStore } from "../../infrastructure/dynamodb/dynamo-realtime-store.js";
 import { KmsDynamoTelegramCredentialVault } from "../../infrastructure/dynamodb/kms-dynamo-telegram-credential-vault.js";
@@ -91,6 +93,7 @@ export interface PrivateApiHandlerDependencies {
   listConversationMessages: Pick<ListConversationMessages, "execute">;
   listConversations: Pick<ListConversations, "execute">;
   listTenantIntegrations: Pick<ListTenantIntegrations, "execute">;
+  updateInboundMedia: Pick<DynamoPlatformAdminStore, "updateInboundMedia">;
   queueMessage: Pick<QueueMessage, "execute">;
   registerTelegramIntegration: Pick<RegisterTelegramIntegration, "execute">;
   registerWhatsappIntegration: Pick<RegisterWhatsappIntegration, "execute">;
@@ -108,6 +111,7 @@ export const createPrivateApiHandler =
     listConversationMessages,
     listConversations,
     listTenantIntegrations,
+    updateInboundMedia,
     queueMessage,
     registerTelegramIntegration,
     registerWhatsappIntegration,
@@ -240,6 +244,24 @@ export const createPrivateApiHandler =
         });
 
         return jsonResponse(201, integration, correlationId);
+      }
+
+      if (
+        event.routeKey === "PATCH /v1/tenants/{tenantId}/integrations/{integrationId}/inbound-media"
+      ) {
+        requireScope(identity.scope, "integrations:write");
+        const tenantId = tenantIdSchema.parse(event.pathParameters?.tenantId);
+        const integrationId = integrationIdSchema.parse(event.pathParameters?.integrationId);
+        await getTenant.byTenantId(identity.applicationId, tenantId);
+        const inboundMedia = updateInboundMediaSettingsRequestSchema.parse(readJsonBody(event));
+        const result = await updateInboundMedia.updateInboundMedia({
+          applicationId: identity.applicationId,
+          inboundMedia,
+          integrationId,
+          tenantId,
+        });
+
+        return jsonResponse(200, { integrationId, ...result }, correlationId);
       }
 
       if (
@@ -396,6 +418,13 @@ const mediaStore = new S3MediaStore(s3Client, {
   bucket: config.MEDIA_BUCKET,
   urlTtlSeconds: config.MEDIA_URL_TTL_SECONDS,
 });
+const inboundMediaSettings = new DynamoPlatformAdminStore(
+  dynamoDocumentClient,
+  config.CONTROL_TABLE,
+  config.DATA_TABLE,
+  mediaStore,
+  config.TINKIVA_INTEGRATIONS_TABLE,
+);
 const conversationReader = new DynamoConversationReader(
   dynamoDocumentClient,
   config.CONTROL_TABLE,
@@ -483,6 +512,7 @@ export const main = createPrivateApiHandler({
   listConversationMessages: new ListConversationMessages(conversationReader),
   listConversations: new ListConversations(conversationReader),
   listTenantIntegrations: new ListTenantIntegrations(tenantIntegrationReader),
+  updateInboundMedia: inboundMediaSettings,
   queueMessage: new QueueMessage(
     new DynamoMessageIntegrationReader(dynamoDocumentClient, config.CONTROL_TABLE),
     queueTelegramMessage,

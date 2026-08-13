@@ -41,10 +41,10 @@ describe("DynamoMediaEnrichmentStore", () => {
     const command: unknown = send.mock.calls[0]?.[0];
     expect(command).toBeInstanceOf(TransactWriteCommand);
     expect(
-      (command as TransactWriteCommand).input.TransactItems?.[2]?.Update?.UpdateExpression,
+      (command as TransactWriteCommand).input.TransactItems?.[1]?.Update?.UpdateExpression,
     ).toBe("SET #leaseId = :leaseId, #leaseExpiresAt = :leaseExpiresAt");
     expect(
-      (command as TransactWriteCommand).input.TransactItems?.[2]?.Update?.ExpressionAttributeValues,
+      (command as TransactWriteCommand).input.TransactItems?.[1]?.Update?.ExpressionAttributeValues,
     ).toEqual(
       expect.objectContaining({
         ":mediaBucket": job.media.bucket,
@@ -58,12 +58,7 @@ describe("DynamoMediaEnrichmentStore", () => {
       (command as TransactWriteCommand).input.TransactItems?.[0]?.ConditionCheck
         ?.ConditionExpression,
     ).toContain("#inboundMedia.#flag = :enabled");
-    expect((command as TransactWriteCommand).input.TransactItems?.[1]?.ConditionCheck?.Key).toEqual(
-      {
-        PK: "INTEGRATION#int_test",
-        SK: "OPENAI_CREDENTIAL",
-      },
-    );
+    expect((command as TransactWriteCommand).input.TransactItems).toHaveLength(2);
   });
 
   it("ignores a claim rejected by message or integration conditions", async () => {

@@ -6,89 +6,36 @@ procesa medios enviados por el gateway ni completa mensajes históricos.
 
 ## Credencial de OpenAI
 
-Cada integración mantiene su propia credencial. No existe una clave global de OpenAI ni un secreto
-de Secrets Manager para este flujo. Use una clave de proyecto o service account dedicada, con los
-límites de gasto y acceso mínimos; no use una clave personal compartida. La
-[documentación oficial de autenticación de OpenAI](https://developers.openai.com/api/reference/overview#authentication)
-exige tratar la clave como un secreto del servidor.
+Cada tenant SaaS mantiene una sola credencial OpenAI compartida por StoragIA Backend y todas sus
+integraciones de Tinkiva Messaging. Se administra desde el backend autenticado del SaaS; el
+`tenantId` se deriva de la sesión y nunca se acepta desde el body. La consola global de Messaging
+solo muestra su estado y no puede crear, rotar ni eliminar la clave.
 
-La opción recomendada es abrir `GET <gateway-base-url>/admin`, iniciar sesión con el `clientId` y el
-`clientSecret` de la aplicación administrativa global y configurar la credencial en la fila de la
-integración. La consola obtiene automáticamente un JWT corto con `POST /v1/auth/token`. El navegador
-envía la clave de OpenAI una sola vez al API; la lista posterior solo muestra este estado no
-sensible:
-
-```json
-{
-  "configured": true,
-  "credentialVersion": 1,
-  "updatedAt": "<ISO-8601>"
-}
-```
-
-El backend cifra el siguiente objeto con `ProviderCredentialsKey` y guarda únicamente el ciphertext
-en `MessagingControlTable`, aislado por integración:
-
-```json
-{
-  "apiKey": "<OpenAI project API key>",
-  "organization": "<optional organization ID>",
-  "project": "<optional project ID>"
-}
-```
+La fuente única es `TinkivaTenantIntegrations`:
 
 ```text
-PK = INTEGRATION#<integrationId>
-SK = OPENAI_CREDENTIAL
+PK = TENANT#<tenantId>
+SK = PROVIDER#OPENAI
 ```
 
-El registro contiene `credentialCiphertext`, `credentialKeyArn`, `credentialVersion`, ownership y
-timestamps; nunca contiene `apiKey`, `organization` o `project` en texto plano. El cifrado usa como
-contexto KMS `stage`, `tableName`, `resourceType=OPENAI_CREDENTIAL`, `applicationId`, `tenantId` e
-`integrationId`. La clave tampoco se devuelve en listados, respuestas, logs ni errores.
+El registro guarda `credentialEncrypted` en base64, `credentialLast4`, `enabled`,
+`credentialStatus`, `createdAt` y `updatedAt`. No guarda texto plano. KMS cifra y descifra usando
+exactamente este contexto:
 
-### API administrativa
-
-Todas estas rutas requieren `Authorization: Bearer <token>` con el scope exacto `platform:admin`.
-Para crear la primera versión, omita `expectedCredentialVersion`:
-
-```http
-PUT /v1/platform/integrations/{integrationId}/openai-credential
-Authorization: Bearer <platform-admin-token>
-Content-Type: application/json
-
+```json
 {
-  "apiKey": "<OpenAI project API key>",
-  "applicationId": "app_...",
-  "organization": "org_...",
-  "project": "proj_...",
-  "tenantId": "tenant_..."
+  "tenantId": "<tenantId>",
+  "provider": "OPENAI"
 }
 ```
 
-`organization` y `project` son opcionales. Omitir `expectedCredentialVersion` es una operación
-**create-only**: falla si la integración ya tiene una credencial. Para rotar, envíe el mismo request
-con `expectedCredentialVersion` igual a la versión que muestra el panel. Un cambio concurrente
-devuelve `409`; recargue el estado antes de reintentar. La respuesta contiene únicamente
-`configured`, `credentialVersion` y `updatedAt`.
-
-Para retirar la credencial se exige la versión actual:
-
-```http
-DELETE /v1/platform/integrations/{integrationId}/openai-credential
-Authorization: Bearer <platform-admin-token>
-Content-Type: application/json
-
-{
-  "applicationId": "app_...",
-  "expectedCredentialVersion": 2,
-  "tenantId": "tenant_..."
-}
-```
-
-La respuesta indica `configured: false`; no devuelve material secreto. La eliminación apaga ambos
-flags de enriquecimiento en la misma transacción. Cualquier trabajo obsoleto que permanezca en
-`MediaQueue` queda rechazado antes de leer S3 o llamar a OpenAI.
+La Lambda recibe `TINKIVA_INTEGRATIONS_TABLE` y `TINKIVA_KMS_KEY_ID`, consulta por tenant y mantiene
+el plaintext solo en memoria con cache TTL de cinco minutos. Primero resuelve el `externalAccountId`
+del vínculo activo entre el tenant interno de Messaging y la aplicación; ese identificador es el
+`accountId` usado por StoragIA como tenant criptográfico. Su rol permite `dynamodb:Query` solo en la
+tabla de control, `dynamodb:GetItem` en la tabla de integraciones y `kms:Decrypt`. La credencial
+nunca viaja por SQS, respuestas o logs. Una credencial ausente, deshabilitada o marcada `INVALID`
+produce un fallo permanente y no se reintenta indefinidamente.
 
 ## Modelos y despliegue
 
@@ -182,14 +129,15 @@ pnpm admin:create-application `
   --region $Region
 ```
 
-La consola hace el intercambio de `clientId` y `clientSecret` por el JWT; no es necesario obtener ni
-pegar el token manualmente. Permite listar globalmente integraciones y cantidades de chats,
-crear/rotar/eliminar su credencial OpenAI, cambiar ambos flags y ejecutar las eliminaciones
-disponibles. Las APIs subyacentes rechazan con `403` cualquier JWT que no contenga `platform:admin`.
+La consola hace el intercambio de `clientId` y el `clientSecret` por el JWT; no es necesario obtener
+ni pegar el token manualmente. Permite listar integraciones y cantidades de chats, ver si el tenant
+tiene OpenAI configurado, cambiar ambos flags y ejecutar las eliminaciones disponibles. La
+credencial se gestiona exclusivamente en el SaaS autenticado. Las APIs subyacentes rechazan con
+`403` cualquier JWT que no contenga `platform:admin`.
 
 `Borrar chats` elimina el historial y sus objetos de medios existentes, pero mantiene activa la
 integración; un mensaje recibido después puede crear un chat nuevo. `Borrar integración + chats`
-deshabilita primero el ingreso local, elimina chats, medios, referencias y la credencial cifrada, y
+deshabilita primero el ingreso local y elimina chats, medios y referencias de la integración, y
 finalmente elimina la integración local. Esta última operación no modifica suscripciones remotas en
 Telegram o Meta: si la cuenta se retira definitivamente, quite también el webhook o la suscripción
 desde el proveedor, teniendo en cuenta si una WABA es compartida por otras integraciones.

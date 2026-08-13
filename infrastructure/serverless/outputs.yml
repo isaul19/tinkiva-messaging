@@ -73,6 +73,16 @@ Outputs:
       Fn::GetAtt:
         - ProviderCredentialsKey
         - Arn
+  TenantIntegrationsTableName:
+    Description: Single source of encrypted tenant provider credentials.
+    Value:
+      Ref: TinkivaTenantIntegrations
+  TenantSecretsKeyArn:
+    Description: KMS key used for application-level tenant credential encryption.
+    Value:
+      Fn::GetAtt:
+        - ProviderCredentialsKey
+        - Arn
   AuthPepperSecretArn:
     Description: ARN of the generated application authentication pepper.
     Value:

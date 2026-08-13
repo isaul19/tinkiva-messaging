@@ -20,44 +20,57 @@ export const textContentSchema = z
   })
   .strict();
 
-export const mediaContentSchema = z
+const mediaSourceSchema = z
   .object({
-    media: z
-      .object({
-        caption: z.string().max(1_024).optional(),
-        mediaId: z.string().trim().min(1).max(1_024).optional(),
-        text: z.string().min(1).max(1_024).optional(),
-        url: z
-          .url()
-          .refine((value) => value.startsWith("https://"), {
-            message: "Only HTTPS media URLs are accepted.",
-          })
-          .optional(),
+    caption: z.string().max(1_024).optional(),
+    mediaId: z.string().trim().min(1).max(1_024).optional(),
+    text: z.string().min(1).max(1_024).optional(),
+    url: z
+      .url()
+      .refine((value) => value.startsWith("https://"), {
+        message: "Only HTTPS media URLs are accepted.",
       })
-      .strict()
-      .superRefine((media, context) => {
-        if (Number(media.mediaId !== undefined) + Number(media.url !== undefined) !== 1) {
-          context.addIssue({
-            code: "custom",
-            message: "Exactly one of mediaId or url is required.",
-            path: ["mediaId"],
-          });
-        }
-        if (media.caption !== undefined && media.text !== undefined) {
-          context.addIssue({
-            code: "custom",
-            message: "Use either text or caption, not both.",
-            path: ["text"],
-          });
-        }
-      }),
+      .optional(),
+  })
+  .strict()
+  .superRefine((media, context) => {
+    if (Number(media.mediaId !== undefined) + Number(media.url !== undefined) !== 1) {
+      context.addIssue({
+        code: "custom",
+        message: "Exactly one of mediaId or url is required.",
+        path: ["mediaId"],
+      });
+    }
+    if (media.caption !== undefined && media.text !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "Use either text or caption, not both.",
+        path: ["text"],
+      });
+    }
+  });
+
+export const imageContentSchema = z
+  .object({
+    media: mediaSourceSchema,
     type: z.literal("IMAGE"),
+  })
+  .strict();
+
+// Backward-compatible export for SDK consumers that imported the image schema by its old name.
+export const mediaContentSchema = imageContentSchema;
+
+export const audioContentSchema = z
+  .object({
+    media: mediaSourceSchema,
+    type: z.literal("AUDIO"),
   })
   .strict();
 
 export const messageContentSchema = z.discriminatedUnion("type", [
   textContentSchema,
-  mediaContentSchema,
+  imageContentSchema,
+  audioContentSchema,
 ]);
 
 export const recipientSchema = z

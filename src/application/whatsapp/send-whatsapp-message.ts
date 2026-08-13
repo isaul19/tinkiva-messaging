@@ -53,7 +53,9 @@ export class SendWhatsappMessage {
               recipientId: claimed.recipientId,
               text: claimed.content.text,
             })
-          : await this.#sendImage(credential.accessToken, claimed);
+          : claimed.content.type === "AUDIO"
+            ? await this.#sendAudio(credential.accessToken, claimed)
+            : await this.#sendImage(credential.accessToken, claimed);
       await this.#store.markSent({
         conversationId: claimed.conversationId,
         integrationId,
@@ -134,6 +136,52 @@ export class SendWhatsappMessage {
       recipientId: claimed.recipientId,
     });
   }
+
+  async #sendAudio(
+    accessToken: string,
+    claimed: Extract<Awaited<ReturnType<WhatsappSendStore["acquire"]>>, { status: "CLAIMED" }>,
+  ): Promise<{ providerMessageId: string }> {
+    if (claimed.content.type !== "AUDIO" || this.#api.sendAudio === undefined) {
+      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Audio sending is not configured.", 422);
+    }
+    let providerMediaId = claimed.providerMediaId;
+    if (providerMediaId === undefined) {
+      if (
+        this.#media === undefined ||
+        this.#media.readAudio === undefined ||
+        this.#api.uploadAudio === undefined
+      ) {
+        throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Audio sending is not configured.", 422);
+      }
+      if (!isWhatsappAudioMimeType(claimed.content.media.mimeType)) {
+        throw new ApplicationError("MEDIA_INVALID", "WhatsApp rejected the audio format.", 422);
+      }
+      const audio = await this.#media.readAudio(claimed.content.media);
+      if (!isWhatsappAudioMimeType(audio.mimeType)) {
+        throw new ApplicationError("MEDIA_INVALID", "WhatsApp rejected the audio format.", 422);
+      }
+      const uploaded = await this.#api.uploadAudio({
+        accessToken,
+        bytes: audio.bytes,
+        graphApiVersion: claimed.graphApiVersion,
+        mimeType: audio.mimeType,
+        phoneNumberId: claimed.phoneNumberId,
+      });
+      providerMediaId = uploaded.providerMediaId;
+      await this.#store.saveProviderMediaId({
+        conversationId: claimed.conversationId,
+        messageSortKey: claimed.messageSortKey,
+        providerMediaId,
+      });
+    }
+    return this.#api.sendAudio({
+      accessToken,
+      graphApiVersion: claimed.graphApiVersion,
+      mediaId: providerMediaId,
+      phoneNumberId: claimed.phoneNumberId,
+      recipientId: claimed.recipientId,
+    });
+  }
 }
 
 const required = (value: string | undefined, fieldName: string): string => {
@@ -146,3 +194,12 @@ const required = (value: string | undefined, fieldName: string): string => {
 
 const isWhatsappImageMimeType = (value: string): value is "image/jpeg" | "image/png" =>
   value === "image/jpeg" || value === "image/png";
+
+const isWhatsappAudioMimeType = (
+  value: string,
+): value is "audio/aac" | "audio/amr" | "audio/mpeg" | "audio/mp4" | "audio/ogg" =>
+  value === "audio/aac" ||
+  value === "audio/amr" ||
+  value === "audio/mpeg" ||
+  value === "audio/mp4" ||
+  value === "audio/ogg";

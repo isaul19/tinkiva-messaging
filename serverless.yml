@@ -158,6 +158,8 @@ functions:
       TELEGRAM_OUTBOUND_QUEUE_URL:
         Ref: TelegramOutboundQueue
       TELEGRAM_WEBHOOK_BASE_URL: ${param:publicBaseUrl, 'https://messaging-api.tinkiva.com'}
+      TINKIVA_INTEGRATIONS_TABLE:
+        Ref: TinkivaTenantIntegrations
       WHATSAPP_GRAPH_API_VERSION: ${param:whatsappGraphApiVersion, 'v25.0'}
       WHATSAPP_OUTBOUND_QUEUE_URL:
         Ref: WhatsappOutboundQueue
@@ -191,6 +193,11 @@ functions:
       - httpApi:
           path: /v1/tenants/{tenantId}/integrations/whatsapp
           method: POST
+          authorizer:
+            name: applicationAuthorizer
+      - httpApi:
+          path: /v1/tenants/{tenantId}/integrations/{integrationId}/inbound-media
+          method: PATCH
           authorizer:
             name: applicationAuthorizer
       - httpApi:
@@ -253,6 +260,8 @@ functions:
         Fn::GetAtt:
           - ProviderCredentialsKey
           - Arn
+      TINKIVA_INTEGRATIONS_TABLE:
+        Ref: TinkivaTenantIntegrations
       STAGE: ${sls:stage}
     events:
       - httpApi:
@@ -266,16 +275,6 @@ functions:
       - httpApi:
           path: /v1/platform/integrations/{integrationId}/inbound-media
           method: PATCH
-          authorizer:
-            name: applicationAuthorizer
-      - httpApi:
-          path: /v1/platform/integrations/{integrationId}/openai-credential
-          method: PUT
-          authorizer:
-            name: applicationAuthorizer
-      - httpApi:
-          path: /v1/platform/integrations/{integrationId}/openai-credential
-          method: DELETE
           authorizer:
             name: applicationAuthorizer
       - httpApi:
@@ -385,7 +384,10 @@ functions:
       MEDIA_URL_TTL_SECONDS: "300"
       OPENAI_AUDIO_MODEL: ${param:openAiAudioModel, 'gpt-4o-mini-transcribe'}
       OPENAI_IMAGE_MODEL: ${param:openAiImageModel, 'gpt-5.6-luna'}
-      PROVIDER_CREDENTIALS_KEY_ARN:
+      STORAGIA_APPLICATION_ID: ${env:STORAGIA_AUTOMATION_APPLICATION_ID}
+      TINKIVA_INTEGRATIONS_TABLE:
+        Ref: TinkivaTenantIntegrations
+      TINKIVA_KMS_KEY_ID:
         Fn::GetAtt:
           - ProviderCredentialsKey
           - Arn

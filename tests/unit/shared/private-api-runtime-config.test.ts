@@ -13,6 +13,7 @@ const environment = {
   STAGE: "test",
   TELEGRAM_OUTBOUND_QUEUE_URL: "https://sqs.example/telegram",
   TELEGRAM_WEBHOOK_BASE_URL: "https://gateway.example",
+  TINKIVA_INTEGRATIONS_TABLE: "tenant-integrations-test",
   WHATSAPP_GRAPH_API_VERSION: "v25.0",
   WHATSAPP_OUTBOUND_QUEUE_URL: "https://sqs.example/whatsapp",
   WHATSAPP_WEBHOOK_BASE_URL: "https://gateway.example",

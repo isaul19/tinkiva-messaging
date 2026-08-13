@@ -10,7 +10,7 @@ import {
 } from "../../contracts/queues/media-enrichment.contract.js";
 import { dynamoDocumentClient, kmsClient, s3Client } from "../../infrastructure/aws/clients.js";
 import { DynamoMediaEnrichmentStore } from "../../infrastructure/dynamodb/dynamo-media-enrichment-store.js";
-import { KmsDynamoOpenAICredentialVault } from "../../infrastructure/dynamodb/kms-dynamo-openai-credential-vault.js";
+import { KmsDynamoTenantOpenAICredentialReader } from "../../infrastructure/dynamodb/kms-dynamo-tenant-openai-credential-reader.js";
 import { FfmpegOpenAIAudioNormalizer } from "../../infrastructure/media/ffmpeg-openai-audio-normalizer.js";
 import { OpenAIPerIntegrationMediaAlternativeTextGenerator } from "../../infrastructure/openai/openai-per-integration-media-alternative-text-generator.js";
 import { S3MediaStore } from "../../infrastructure/s3/s3-media-store.js";
@@ -123,11 +123,16 @@ const createDefaultHandler = (
     bucket: config.MEDIA_BUCKET,
     urlTtlSeconds: config.MEDIA_URL_TTL_SECONDS,
   });
-  const credentialVault = new KmsDynamoOpenAICredentialVault(dynamoDocumentClient, kmsClient, {
-    keyArn: config.PROVIDER_CREDENTIALS_KEY_ARN,
-    stage: config.STAGE,
-    tableName: config.CONTROL_TABLE,
-  });
+  const credentialVault = new KmsDynamoTenantOpenAICredentialReader(
+    dynamoDocumentClient,
+    kmsClient,
+    {
+      applicationId: config.STORAGIA_APPLICATION_ID,
+      controlTable: config.CONTROL_TABLE,
+      keyId: config.TINKIVA_KMS_KEY_ID,
+      tableName: config.TINKIVA_INTEGRATIONS_TABLE,
+    },
+  );
   const generator = new OpenAIPerIntegrationMediaAlternativeTextGenerator(
     mediaStore,
     new FfmpegOpenAIAudioNormalizer(),

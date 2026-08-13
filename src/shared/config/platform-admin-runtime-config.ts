@@ -5,6 +5,7 @@ const platformAdminRuntimeConfigSchema = z.object({
   DATA_TABLE: z.string().min(1),
   MEDIA_BUCKET: z.string().min(1),
   PROVIDER_CREDENTIALS_KEY_ARN: z.string().min(1),
+  TINKIVA_INTEGRATIONS_TABLE: z.string().min(1),
   STAGE: z.string().min(1),
 });
 

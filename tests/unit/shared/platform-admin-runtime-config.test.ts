@@ -10,6 +10,7 @@ describe("platform admin runtime configuration", () => {
         DATA_TABLE: "data-test",
         MEDIA_BUCKET: "media-test",
         PROVIDER_CREDENTIALS_KEY_ARN: "arn:aws:kms:us-east-1:123456789012:key/test",
+        TINKIVA_INTEGRATIONS_TABLE: "tenant-integrations-test",
         STAGE: "test",
       }),
     ).toEqual({
@@ -17,6 +18,7 @@ describe("platform admin runtime configuration", () => {
       DATA_TABLE: "data-test",
       MEDIA_BUCKET: "media-test",
       PROVIDER_CREDENTIALS_KEY_ARN: "arn:aws:kms:us-east-1:123456789012:key/test",
+      TINKIVA_INTEGRATIONS_TABLE: "tenant-integrations-test",
       STAGE: "test",
     });
   });

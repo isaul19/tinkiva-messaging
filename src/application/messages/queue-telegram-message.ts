@@ -5,7 +5,7 @@ import type {
   ReservedTelegramMessage,
   StoredOutgoingContent,
 } from "../ports/outgoing-message-store.js";
-import type { OutboundImageImporter } from "../ports/media.js";
+import type { OutboundAudioImporter, OutboundImageImporter } from "../ports/media.js";
 import type { TelegramOutboundPublisher } from "../ports/telegram-outbound-publisher.js";
 import type {
   SendMessageRequest,
@@ -22,14 +22,14 @@ export interface QueueTelegramMessageCommand {
 }
 
 export class QueueTelegramMessage {
-  readonly #media: OutboundImageImporter | undefined;
+  readonly #media: (OutboundImageImporter & Partial<OutboundAudioImporter>) | undefined;
   readonly #publisher: TelegramOutboundPublisher;
   readonly #store: OutgoingMessageStore;
 
   public constructor(
     store: OutgoingMessageStore,
     publisher: TelegramOutboundPublisher,
-    media?: OutboundImageImporter,
+    media?: OutboundImageImporter & Partial<OutboundAudioImporter>,
   ) {
     this.#media = media;
     this.#store = store;
@@ -38,8 +38,12 @@ export class QueueTelegramMessage {
 
   public async execute(command: QueueTelegramMessageCommand): Promise<SendMessageResponse> {
     const content = command.request.content;
-    if (content.type === "IMAGE" && this.#media === undefined) {
-      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Image sending is not configured.", 422);
+    if (
+      content.type !== "TEXT" &&
+      (this.#media === undefined ||
+        (content.type === "AUDIO" && this.#media.importAudio === undefined))
+    ) {
+      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Media sending is not configured.", 422);
     }
     const destination = await this.#store.resolveTelegramDestination({
       applicationId: command.applicationId,
@@ -121,7 +125,28 @@ export class QueueTelegramMessage {
     const content = command.request.content;
     if (content.type === "TEXT") return { text: content.text.body, type: "TEXT" };
     if (this.#media === undefined) {
-      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Image sending is not configured.", 422);
+      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Media sending is not configured.", 422);
+    }
+    const caption = content.media.text ?? content.media.caption;
+    if (content.type === "AUDIO") {
+      if (this.#media.importAudio === undefined) {
+        throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Audio sending is not configured.", 422);
+      }
+      const media = await this.#media.importAudio({
+        acceptedMimeTypes: ["audio/mpeg", "audio/mp4"],
+        applicationId: command.applicationId,
+        maxSizeBytes: 16 * 1024 * 1024,
+        ...(content.media.mediaId === undefined ? {} : { mediaId: content.media.mediaId }),
+        messageId,
+        ...(content.media.url === undefined ? {} : { sourceUrl: content.media.url }),
+        tenantId: command.request.tenantId,
+      });
+      return {
+        ...(caption === undefined ? {} : { caption }),
+        media,
+        type: "AUDIO",
+        voice: false,
+      };
     }
     const media = await this.#media.importImage({
       applicationId: command.applicationId,
@@ -130,7 +155,6 @@ export class QueueTelegramMessage {
       ...(content.media.url === undefined ? {} : { sourceUrl: content.media.url }),
       tenantId: command.request.tenantId,
     });
-    const caption = content.media.text ?? content.media.caption;
     return {
       ...(caption === undefined ? {} : { caption }),
       media,

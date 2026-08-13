@@ -17,6 +17,7 @@ import type {
   MediaObjectDeleter,
   MediaReference,
   MediaUrlSigner,
+  OutboundAudioImporter,
   OutboundImageImporter,
 } from "../../application/ports/media.js";
 import { audioMimeTypeSchema, type AudioMimeType } from "../../contracts/shared/audio.js";
@@ -32,6 +33,7 @@ export class S3MediaStore
     MediaBinaryReader,
     MediaObjectDeleter,
     MediaUrlSigner,
+    OutboundAudioImporter,
     OutboundImageImporter
 {
   readonly #bucket: string;
@@ -105,11 +107,73 @@ export class S3MediaStore
     return { bucket: this.#bucket, key: input.mediaId, mimeType, sha256, sizeBytes };
   }
 
+  public async importAudio(input: {
+    acceptedMimeTypes?: string[];
+    applicationId: string;
+    maxSizeBytes?: number;
+    mediaId?: string;
+    messageId: string;
+    sourceUrl?: string;
+    tenantId: string;
+  }): Promise<MediaReference> {
+    const maxSizeBytes = Math.min(input.maxSizeBytes ?? MAX_AUDIO_BYTES, MAX_AUDIO_BYTES);
+    if (input.sourceUrl !== undefined) {
+      const response = await this.#downloadPublicMedia(input.sourceUrl, invalidAudio);
+      if (!response.ok) throw invalidAudio("The audio URL could not be downloaded.");
+      const declaredLength = Number(response.headers.get("content-length") ?? "0");
+      if (declaredLength > maxSizeBytes) {
+        throw invalidAudio("The audio exceeds the provider size limit.");
+      }
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const mimeType = normalizeAudioType(response.headers.get("content-type") ?? "", bytes);
+      assertOutboundAudioConstraints(
+        mimeType,
+        bytes.byteLength,
+        input.acceptedMimeTypes,
+        maxSizeBytes,
+      );
+      return this.putAudio({ ...input, bytes, mimeType, provider: "OUTBOUND" });
+    }
+
+    const tenantPrefix = `tenants/${encodeURIComponent(input.tenantId)}/`;
+    if (!input.mediaId?.startsWith(tenantPrefix)) {
+      throw invalidAudio("mediaId must be a media object key returned by this gateway.");
+    }
+    const response = await this.#client.send(
+      new HeadObjectCommand({ Bucket: this.#bucket, Key: input.mediaId }),
+    );
+    const sizeBytes = response.ContentLength ?? 0;
+    const sha256 = response.Metadata?.sha256;
+    if (
+      sizeBytes <= 0 ||
+      sizeBytes > MAX_AUDIO_BYTES ||
+      sha256 === undefined ||
+      response.Metadata?.applicationid !== input.applicationId ||
+      response.Metadata.tenantid !== input.tenantId
+    ) {
+      throw invalidAudio("The stored audio metadata is invalid.");
+    }
+    const object = await this.#client.send(
+      new GetObjectCommand({ Bucket: this.#bucket, Key: input.mediaId, Range: "bytes=0-31" }),
+    );
+    const bytes = new Uint8Array((await object.Body?.transformToByteArray()) ?? []);
+    const mimeType = normalizeAudioType(response.ContentType ?? "", bytes);
+    assertOutboundAudioConstraints(mimeType, sizeBytes, input.acceptedMimeTypes, maxSizeBytes);
+    return { bucket: this.#bucket, key: input.mediaId, mimeType, sha256, sizeBytes };
+  }
+
   public async readImage(media: MediaReference): Promise<{
     bytes: Uint8Array;
     mimeType: string;
   }> {
     return this.#readImage(media);
+  }
+
+  public async readAudio(media: MediaReference): Promise<{
+    bytes: Uint8Array;
+    mimeType: string;
+  }> {
+    return this.#readAudio(media);
   }
 
   async #readImage(
@@ -161,10 +225,22 @@ export class S3MediaStore
     const { media } = input;
     const ownership = { applicationId: input.applicationId, tenantId: input.tenantId };
     if (media.mimeType.startsWith("image/")) return this.#readImage(media, ownership);
+    return this.#readAudio(media, ownership);
+  }
+
+  async #readAudio(
+    media: MediaReference,
+    ownership?: { applicationId: string; tenantId: string },
+  ): Promise<{
+    bytes: Uint8Array;
+    mimeType: string;
+  }> {
     if (media.bucket !== this.#bucket) {
       throw invalidAudio("The media reference belongs to a different bucket.");
     }
-    assertOwnedMediaKey(media.key, input.tenantId, invalidAudio);
+    if (ownership !== undefined) {
+      assertOwnedMediaKey(media.key, ownership.tenantId, invalidAudio);
+    }
 
     const response = await this.#client.send(
       new GetObjectCommand({
@@ -172,7 +248,9 @@ export class S3MediaStore
         Key: media.key,
       }),
     );
-    assertOwnedMediaMetadata(response.Metadata, ownership, invalidAudio);
+    if (ownership !== undefined) {
+      assertOwnedMediaMetadata(response.Metadata, ownership, invalidAudio);
+    }
     if (response.Body === undefined) {
       throw invalidAudio("The stored audio could not be read.");
     }
@@ -245,7 +323,7 @@ export class S3MediaStore
     maxSizeBytes?: number;
     messageId: string;
     mimeType: string;
-    provider: "TELEGRAM" | "WHATSAPP";
+    provider: "OUTBOUND" | "TELEGRAM" | "WHATSAPP";
     tenantId: string;
   }): Promise<MediaReference> {
     const maxSizeBytes = Math.min(input.maxSizeBytes ?? MAX_AUDIO_BYTES, MAX_AUDIO_BYTES);
@@ -346,6 +424,14 @@ export class S3MediaStore
   }
 
   async #downloadPublicImage(sourceUrl: string, redirectCount = 0): Promise<Response> {
+    return this.#downloadPublicMedia(sourceUrl, invalidImage, redirectCount);
+  }
+
+  async #downloadPublicMedia(
+    sourceUrl: string,
+    invalid: (message: string) => ApplicationError,
+    redirectCount = 0,
+  ): Promise<Response> {
     const url = await assertPublicHttpsUrl(sourceUrl);
     const response = await this.#fetch(url, {
       redirect: "manual",
@@ -354,9 +440,13 @@ export class S3MediaStore
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
       if (location === null || redirectCount >= 3) {
-        throw invalidImage("The image URL has an invalid redirect.");
+        throw invalid("The media URL has an invalid redirect.");
       }
-      return this.#downloadPublicImage(new URL(location, url).toString(), redirectCount + 1);
+      return this.#downloadPublicMedia(
+        new URL(location, url).toString(),
+        invalid,
+        redirectCount + 1,
+      );
     }
     return response;
   }
@@ -484,6 +574,20 @@ const assertOutboundImageConstraints = (
   }
   if (acceptedMimeTypes !== undefined && !acceptedMimeTypes.includes(mimeType)) {
     throw invalidImage(`The provider does not accept ${mimeType} images.`);
+  }
+};
+
+const assertOutboundAudioConstraints = (
+  mimeType: string,
+  sizeBytes: number,
+  acceptedMimeTypes: string[] | undefined,
+  maxSizeBytes: number,
+): void => {
+  if (sizeBytes <= 0 || sizeBytes > maxSizeBytes) {
+    throw invalidAudio("The audio exceeds the provider size limit.");
+  }
+  if (acceptedMimeTypes !== undefined && !acceptedMimeTypes.includes(mimeType)) {
+    throw invalidAudio("The audio format is not supported by this provider.");
   }
 };
 

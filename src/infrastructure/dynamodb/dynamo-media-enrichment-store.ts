@@ -80,8 +80,7 @@ export class DynamoMediaEnrichmentStore implements MediaEnrichmentStore {
                 ConditionExpression:
                   "applicationId = :applicationId AND tenantId = :tenantId AND " +
                   "integrationId = :integrationId AND entityType = :integrationEntityType " +
-                  "AND #status = :active AND #inboundMedia.#flag = :enabled " +
-                  "AND openAiCredential.configured = :enabled",
+                  "AND #status = :active AND #inboundMedia.#flag = :enabled",
                 ExpressionAttributeNames: {
                   "#flag": flag,
                   "#inboundMedia": "inboundMedia",
@@ -96,21 +95,6 @@ export class DynamoMediaEnrichmentStore implements MediaEnrichmentStore {
                   ":tenantId": job.tenantId,
                 },
                 Key: { PK: `INTEGRATION#${job.integrationId}`, SK: "META" },
-                TableName: this.#controlTable,
-              },
-            },
-            {
-              ConditionCheck: {
-                ConditionExpression:
-                  "applicationId = :applicationId AND tenantId = :tenantId AND " +
-                  "integrationId = :integrationId AND entityType = :credentialEntityType",
-                ExpressionAttributeValues: {
-                  ":applicationId": job.applicationId,
-                  ":credentialEntityType": "OPENAI_CREDENTIAL",
-                  ":integrationId": job.integrationId,
-                  ":tenantId": job.tenantId,
-                },
-                Key: { PK: `INTEGRATION#${job.integrationId}`, SK: "OPENAI_CREDENTIAL" },
                 TableName: this.#controlTable,
               },
             },

@@ -5,7 +5,7 @@ import type {
   ReservedWhatsappMessage,
   WhatsappOutgoingMessageStore,
 } from "../ports/whatsapp-outgoing-message-store.js";
-import type { OutboundImageImporter } from "../ports/media.js";
+import type { OutboundAudioImporter, OutboundImageImporter } from "../ports/media.js";
 import type { StoredOutgoingContent } from "../ports/outgoing-message-store.js";
 import type {
   SendMessageRequest,
@@ -25,14 +25,14 @@ export interface QueueWhatsappMessageCommand {
 }
 
 export class QueueWhatsappMessage {
-  readonly #media: OutboundImageImporter | undefined;
+  readonly #media: (OutboundImageImporter & Partial<OutboundAudioImporter>) | undefined;
   readonly #publisher: WhatsappOutboundPublisher;
   readonly #store: WhatsappOutgoingMessageStore;
 
   public constructor(
     store: WhatsappOutgoingMessageStore,
     publisher: WhatsappOutboundPublisher,
-    media?: OutboundImageImporter,
+    media?: OutboundImageImporter & Partial<OutboundAudioImporter>,
   ) {
     this.#media = media;
     this.#publisher = publisher;
@@ -41,8 +41,12 @@ export class QueueWhatsappMessage {
 
   public async execute(command: QueueWhatsappMessageCommand): Promise<SendMessageResponse> {
     const content = command.request.content;
-    if (content.type === "IMAGE" && this.#media === undefined) {
-      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Image sending is not configured.", 422);
+    if (
+      content.type !== "TEXT" &&
+      (this.#media === undefined ||
+        (content.type === "AUDIO" && this.#media.importAudio === undefined))
+    ) {
+      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Media sending is not configured.", 422);
     }
     const destination = await this.#store.resolveWhatsappDestination({
       applicationId: command.applicationId,
@@ -130,7 +134,28 @@ export class QueueWhatsappMessage {
     const content = command.request.content;
     if (content.type === "TEXT") return { text: content.text.body, type: "TEXT" };
     if (this.#media === undefined) {
-      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Image sending is not configured.", 422);
+      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Media sending is not configured.", 422);
+    }
+    const caption = content.media.text ?? content.media.caption;
+    if (content.type === "AUDIO") {
+      if (this.#media.importAudio === undefined) {
+        throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Audio sending is not configured.", 422);
+      }
+      const media = await this.#media.importAudio({
+        acceptedMimeTypes: ["audio/aac", "audio/amr", "audio/mpeg", "audio/mp4", "audio/ogg"],
+        applicationId: command.applicationId,
+        maxSizeBytes: 16 * 1024 * 1024,
+        ...(content.media.mediaId === undefined ? {} : { mediaId: content.media.mediaId }),
+        messageId,
+        ...(content.media.url === undefined ? {} : { sourceUrl: content.media.url }),
+        tenantId: command.request.tenantId,
+      });
+      return {
+        ...(caption === undefined ? {} : { caption }),
+        media,
+        type: "AUDIO",
+        voice: false,
+      };
     }
     const media = await this.#media.importImage({
       acceptedMimeTypes: WHATSAPP_IMAGE_MIME_TYPES,
@@ -141,7 +166,6 @@ export class QueueWhatsappMessage {
       ...(content.media.url === undefined ? {} : { sourceUrl: content.media.url }),
       tenantId: command.request.tenantId,
     });
-    const caption = content.media.text ?? content.media.caption;
     return {
       ...(caption === undefined ? {} : { caption }),
       media,

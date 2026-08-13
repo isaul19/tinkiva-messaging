@@ -33,6 +33,13 @@ Resources:
                   - dynamodb:GetItem
                 Resource:
                   Fn::GetAtt:
+                    - TinkivaTenantIntegrations
+                    - Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                Resource:
+                  Fn::GetAtt:
                     - MessagingControlTable
                     - Arn
               - Effect: Allow
@@ -67,10 +74,7 @@ Resources:
                     - Arn
                 Condition:
                   StringEquals:
-                    "kms:EncryptionContext:stage": ${sls:stage}
-                    "kms:EncryptionContext:resourceType": OPENAI_CREDENTIAL
-                    "kms:EncryptionContext:tableName":
-                      Ref: MessagingControlTable
+                    "kms:EncryptionContext:provider": OPENAI
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup

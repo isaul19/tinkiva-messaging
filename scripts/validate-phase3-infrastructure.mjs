@@ -64,6 +64,7 @@ for (const action of [
   "sqs:ReceiveMessage",
   "sqs:DeleteMessage",
   "sqs:GetQueueAttributes",
+  "dynamodb:ConditionCheckItem",
   "dynamodb:GetItem",
   "dynamodb:PutItem",
   "dynamodb:UpdateItem",
@@ -71,6 +72,16 @@ for (const action of [
 ]) {
   assert(inboundActions.includes(action), `InboundProcessorLambdaRole must allow ${action}`);
 }
+
+const inboundConditionCheckStatement = inboundStatements.find((statement) =>
+  (Array.isArray(statement.Action) ? statement.Action : [statement.Action]).includes(
+    "dynamodb:ConditionCheckItem",
+  ),
+);
+assert(
+  inboundConditionCheckStatement?.Resource?.["Fn::GetAtt"]?.[0] === "MessagingControlTable",
+  "InboundProcessorLambdaRole must restrict ConditionCheckItem to MessagingControlTable",
+);
 
 const inboundGetStatement = inboundStatements.find((statement) =>
   (Array.isArray(statement.Action) ? statement.Action : [statement.Action]).includes(

@@ -46,17 +46,12 @@ Resources:
                             - Arn
               - Effect: Allow
                 Action:
-                  - kms:Encrypt
+                  - dynamodb:BatchGetItem
+                  - dynamodb:GetItem
                 Resource:
                   Fn::GetAtt:
-                    - ProviderCredentialsKey
+                    - TinkivaTenantIntegrations
                     - Arn
-                Condition:
-                  StringEquals:
-                    "kms:EncryptionContext:stage": ${sls:stage}
-                    "kms:EncryptionContext:resourceType": OPENAI_CREDENTIAL
-                    "kms:EncryptionContext:tableName":
-                      Ref: MessagingControlTable
               - Effect: Allow
                 Action:
                   - s3:DeleteObject

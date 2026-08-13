@@ -6,6 +6,7 @@ vi.hoisted(() => {
   process.env.DATA_TABLE = "data-test";
   process.env.MEDIA_BUCKET = "media-test";
   process.env.PROVIDER_CREDENTIALS_KEY_ARN = "arn:aws:kms:us-east-1:123456789012:key/test";
+  process.env.TINKIVA_INTEGRATIONS_TABLE = "tenant-integrations-test";
   process.env.STAGE = "test";
 });
 

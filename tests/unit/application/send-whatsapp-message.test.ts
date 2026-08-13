@@ -102,6 +102,58 @@ describe("SendWhatsappMessage", () => {
     expect(dependencies.store.release).not.toHaveBeenCalled();
   });
 
+  it("uploads stored audio once and sends it through WhatsApp", async () => {
+    const dependencies = createDependencies();
+    dependencies.store.acquire.mockResolvedValue({
+      conversationId: "conv_test",
+      content: {
+        media: {
+          mimeType: "audio/ogg",
+          sha256: "c".repeat(64),
+          sizeBytes: 2_048,
+          storageKey: "tenants/tenant_test/outbound/audio.ogg",
+        },
+        type: "AUDIO",
+        voice: false,
+      },
+      credentialRef: "pc_test",
+      graphApiVersion: "v25.0",
+      messageSortKey: "MESSAGE#test",
+      phoneNumberId: "778899",
+      recipientId: "573001112233",
+      status: "CLAIMED" as const,
+    });
+    const audioApi = {
+      ...dependencies.api,
+      sendAudio: vi.fn().mockResolvedValue({ providerMessageId: "wamid.audio" }),
+      uploadAudio: vi.fn().mockResolvedValue({ providerMediaId: "provider-audio" }),
+    };
+    const media = {
+      readImage: vi.fn(),
+      readAudio: vi.fn().mockResolvedValue({
+        bytes: Buffer.from("OggS"),
+        mimeType: "audio/ogg",
+      }),
+    };
+    const useCase = new SendWhatsappMessage(
+      dependencies.store,
+      dependencies.credentials,
+      audioApi,
+      media,
+    );
+
+    await expect(useCase.execute(envelope)).resolves.toEqual({ status: "SENT" });
+    expect(audioApi.uploadAudio).toHaveBeenCalledWith(
+      expect.objectContaining({ mimeType: "audio/ogg", phoneNumberId: "778899" }),
+    );
+    expect(dependencies.store.saveProviderMediaId).toHaveBeenCalledWith(
+      expect.objectContaining({ providerMediaId: "provider-audio" }),
+    );
+    expect(audioApi.sendAudio).toHaveBeenCalledWith(
+      expect.objectContaining({ mediaId: "provider-audio", recipientId: "573001112233" }),
+    );
+  });
+
   it("releases the lease and retries transient provider failures", async () => {
     const dependencies = createDependencies();
     const error = new ApplicationError("PROVIDER_UNAVAILABLE", "Unavailable", 503, true);

@@ -54,7 +54,23 @@ export interface OutboundImageImporter {
   }): Promise<MediaReference>;
 }
 
+export interface OutboundAudioImporter {
+  importAudio(input: {
+    acceptedMimeTypes?: string[];
+    applicationId: string;
+    maxSizeBytes?: number;
+    mediaId?: string;
+    messageId: string;
+    sourceUrl?: string;
+    tenantId: string;
+  }): Promise<MediaReference>;
+}
+
 export interface MediaBinaryReader {
+  readAudio?(media: MediaReference): Promise<{
+    bytes: Uint8Array;
+    mimeType: string;
+  }>;
   readImage(media: MediaReference): Promise<{
     bytes: Uint8Array;
     mimeType: string;

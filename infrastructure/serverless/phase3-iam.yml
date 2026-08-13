@@ -93,6 +93,13 @@ Resources:
                       - Arn
               - Effect: Allow
                 Action:
+                  - dynamodb:ConditionCheckItem
+                Resource:
+                  Fn::GetAtt:
+                    - MessagingControlTable
+                    - Arn
+              - Effect: Allow
+                Action:
                   - kms:Decrypt
                 Resource:
                   Fn::GetAtt:

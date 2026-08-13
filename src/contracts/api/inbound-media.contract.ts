@@ -13,4 +13,11 @@ export const inboundMediaSettingsSchema = z
   .strict()
   .default(DEFAULT_INBOUND_MEDIA_SETTINGS);
 
+export const updateInboundMediaSettingsRequestSchema = z
+  .object({
+    audioAlternativeText: z.boolean(),
+    imageAlternativeText: z.boolean(),
+  })
+  .strict();
+
 export type InboundMediaSettings = z.infer<typeof inboundMediaSettingsSchema>;

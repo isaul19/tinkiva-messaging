@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment -- Vitest asymmetric matchers intentionally return any. */
 import { describe, expect, it, vi } from "vitest";
 
 import { QueueWhatsappMessage } from "../../../src/application/messages/queue-whatsapp-message.js";
@@ -131,6 +132,51 @@ describe("QueueWhatsappMessage", () => {
     });
     expect(dependencies.publisher.publish).not.toHaveBeenCalled();
     expect(dependencies.store.markEnqueued).not.toHaveBeenCalled();
+  });
+
+  it("imports and reserves outbound audio before publishing", async () => {
+    const dependencies = createDependencies();
+    const media = {
+      importAudio: vi.fn().mockResolvedValue({
+        mimeType: "audio/ogg",
+        sha256: "b".repeat(64),
+        sizeBytes: 2_048,
+        storageKey: "tenants/tenant_test/outbound/audio.ogg",
+      }),
+      importImage: vi.fn(),
+    };
+    const useCase = new QueueWhatsappMessage(dependencies.store, dependencies.publisher, media);
+
+    await useCase.execute({
+      applicationId: "app_test",
+      correlationId: "corr_test",
+      idempotencyKey: "idem_audio",
+      request: {
+        content: {
+          media: { caption: "Nota de voz", url: "https://media.example/audio.ogg" },
+          type: "AUDIO",
+        },
+        integrationId: "int_test",
+        recipient: { type: "WHATSAPP_PHONE", value: "573001112233" },
+        tenantId: "tenant_test",
+      },
+    });
+
+    expect(media.importAudio).toHaveBeenCalledWith(
+      expect.objectContaining({
+        acceptedMimeTypes: ["audio/aac", "audio/amr", "audio/mpeg", "audio/mp4", "audio/ogg"],
+        maxSizeBytes: 16 * 1024 * 1024,
+      }),
+    );
+    expect(dependencies.store.reserveWhatsappMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.objectContaining({
+          caption: "Nota de voz",
+          type: "AUDIO",
+          voice: false,
+        }),
+      }),
+    );
   });
 
   it("rejects unsupported media before resolving a destination", async () => {

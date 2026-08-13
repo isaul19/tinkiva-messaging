@@ -11,6 +11,7 @@ const privateApiRuntimeConfigSchema = z.object({
   STAGE: z.string().min(1),
   TELEGRAM_OUTBOUND_QUEUE_URL: z.string().min(1),
   TELEGRAM_WEBHOOK_BASE_URL: z.url(),
+  TINKIVA_INTEGRATIONS_TABLE: z.string().min(1),
   WHATSAPP_GRAPH_API_VERSION: z.string().regex(/^v\d+\.\d+$/),
   WHATSAPP_OUTBOUND_QUEUE_URL: z.string().min(1),
   WHATSAPP_WEBHOOK_BASE_URL: z.url(),

@@ -54,8 +54,10 @@ for (const name of [
   "MEDIA_BUCKET",
   "OPENAI_AUDIO_MODEL",
   "OPENAI_IMAGE_MODEL",
-  "PROVIDER_CREDENTIALS_KEY_ARN",
+  "TINKIVA_INTEGRATIONS_TABLE",
+  "TINKIVA_KMS_KEY_ID",
   "STAGE",
+  "STORAGIA_APPLICATION_ID",
 ]) {
   assert(environment[name] !== undefined, `Media worker is missing ${name}`);
 }
@@ -65,8 +67,12 @@ assert(
   "Media worker must not receive the retired global OpenAI secret ARN",
 );
 assert(
-  environment.PROVIDER_CREDENTIALS_KEY_ARN?.["Fn::GetAtt"]?.[0] === "ProviderCredentialsKey",
+  environment.TINKIVA_KMS_KEY_ID?.["Fn::GetAtt"]?.[0] === "ProviderCredentialsKey",
   "Media worker must receive ProviderCredentialsKey",
+);
+assert(
+  environment.TINKIVA_INTEGRATIONS_TABLE?.Ref === "TinkivaTenantIntegrations",
+  "Media worker must receive the tenant integrations table",
 );
 
 const role = resource("MediaEnrichmentWorkerLambdaRole", "AWS::IAM::Role");
@@ -77,6 +83,7 @@ const actions = statements.flatMap((statement) =>
 for (const action of [
   "dynamodb:ConditionCheckItem",
   "dynamodb:GetItem",
+  "dynamodb:Query",
   "dynamodb:TransactWriteItems",
   "dynamodb:UpdateItem",
   "kms:Decrypt",
@@ -100,11 +107,7 @@ assert(
   "Media worker kms:Decrypt must be scoped to ProviderCredentialsKey",
 );
 assert(
-  decryptStatement?.Condition?.StringEquals?.["kms:EncryptionContext:stage"] === "dev" &&
-    decryptStatement.Condition.StringEquals["kms:EncryptionContext:resourceType"] ===
-      "OPENAI_CREDENTIAL" &&
-    decryptStatement.Condition.StringEquals["kms:EncryptionContext:tableName"]?.Ref ===
-      "MessagingControlTable",
+  decryptStatement?.Condition?.StringEquals?.["kms:EncryptionContext:provider"] === "OPENAI",
   "Media worker kms:Decrypt must be scoped to the OpenAI credential encryption context",
 );
 const credentialReadStatement = statements.find((statement) =>
@@ -113,9 +116,11 @@ const credentialReadStatement = statements.find((statement) =>
   ),
 );
 assert(
-  credentialReadStatement?.Resource?.["Fn::GetAtt"]?.[0] === "MessagingControlTable",
-  "Media worker credential reads must be scoped to MessagingControlTable",
+  credentialReadStatement?.Resource?.["Fn::GetAtt"]?.[0] === "TinkivaTenantIntegrations",
+  "Media worker credential reads must be scoped to TinkivaTenantIntegrations",
 );
+
+resource("TinkivaTenantIntegrations", "AWS::DynamoDB::Table");
 
 const packageDirectory = resolve(process.cwd(), ".serverless");
 const lambdaPackages = readdirSync(packageDirectory).filter((name) => name.endsWith(".zip"));
@@ -147,7 +152,7 @@ for (const packageName of lambdaPackages) {
 }
 
 process.stdout.write(
-  "OpenAI media enrichment Lambda, per-integration DynamoDB/KMS credentials, and IAM shape are valid.\n",
+  "OpenAI media enrichment Lambda, tenant DynamoDB/KMS credentials, and IAM shape are valid.\n",
 );
 
 function readZipEntry(archive, expectedName) {

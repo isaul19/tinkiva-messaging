@@ -380,6 +380,13 @@ const renderAdminHtml = (nonce: string, stage: string): string => `<!doctype htm
       configured ? "Configurada · v" + item.openAiCredential.credentialVersion : "No configurada",
       configured ? "badge" : undefined
     );
+    const managementNotice = element(
+      "small",
+      "La credencial global del tenant se administra desde el SaaS."
+    );
+    cell.append(credentialStatus, managementNotice);
+    return cell;
+    /* Legacy per-integration controls retained temporarily in source for rollback only. */
     const apiKey = document.createElement("input");
     apiKey.type = "password";
     apiKey.autocomplete = "new-password";
@@ -586,6 +593,7 @@ const store = new DynamoPlatformAdminStore(
   config.CONTROL_TABLE,
   config.DATA_TABLE,
   new S3MediaStore(s3Client, { bucket: config.MEDIA_BUCKET }),
+  config.TINKIVA_INTEGRATIONS_TABLE,
 );
 const openAiCredentialVault = new KmsDynamoOpenAICredentialVault(dynamoDocumentClient, kmsClient, {
   keyArn: config.PROVIDER_CREDENTIALS_KEY_ARN,

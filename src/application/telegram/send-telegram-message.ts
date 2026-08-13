@@ -51,7 +51,9 @@ export class SendTelegramMessage {
               chatId: claimed.chatId,
               text: claimed.content.text,
             })
-          : await this.#sendImage(secret.botToken, claimed);
+          : claimed.content.type === "AUDIO"
+            ? await this.#sendAudio(secret.botToken, claimed)
+            : await this.#sendImage(secret.botToken, claimed);
       await this.#store.markSent({
         conversationId: claimed.conversationId,
         messageSortKey: claimed.messageSortKey,
@@ -97,6 +99,25 @@ export class SendTelegramMessage {
       ...(claimed.content.caption === undefined ? {} : { caption: claimed.content.caption }),
       chatId: claimed.chatId,
       imageUrl: await this.#media.temporaryDownloadUrl(claimed.content.media),
+    });
+  }
+
+  async #sendAudio(
+    botToken: string,
+    claimed: Extract<Awaited<ReturnType<TelegramSendStore["acquire"]>>, { status: "CLAIMED" }>,
+  ): Promise<{ providerMessageId: string }> {
+    if (
+      claimed.content.type !== "AUDIO" ||
+      this.#media === undefined ||
+      this.#api.sendAudio === undefined
+    ) {
+      throw new ApplicationError("MESSAGE_NOT_SENDABLE", "Audio sending is not configured.", 422);
+    }
+    return this.#api.sendAudio({
+      audioUrl: await this.#media.temporaryDownloadUrl(claimed.content.media),
+      botToken,
+      ...(claimed.content.caption === undefined ? {} : { caption: claimed.content.caption }),
+      chatId: claimed.chatId,
     });
   }
 }
